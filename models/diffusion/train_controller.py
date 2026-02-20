@@ -1,6 +1,7 @@
 import loss_func
 import forward
 from forward import noise_schedule
+import torch
 
 # model represent score of the distribution in this parameter
 # train_loader allows us to loop over segments of the dataset
@@ -28,11 +29,11 @@ def train_controller(model, train_loader, optimizer, loss_func, epochs, t_max, T
 
             t = torch.randint(0, t_max, (batch.shape[0],))
 
-            batch_noisy, noise = forward(batch, T, t_max)
+            batch_noisy = forward(batch, T, t_max)
             batch_scores = model(batch_noisy, t)
-            betas = []
+            betas = noise_schedule(t, T)
 
-            batch_loss = loss_func(batch_scores, noise)
+            batch_loss = loss_func(batch_scores, betas)
             batch_loss.backward()
 
 
