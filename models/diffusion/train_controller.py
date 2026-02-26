@@ -29,17 +29,16 @@ def train_controller(model, train_loader, optimizer, loss_func, epochs, t_max, T
 
             t = torch.randint(0, t_max, (batch.shape[0],))
 
-            batch_noisy = forward(batch, T, t_max)
+            batch_noisy = forward(batch, T, t)
             batch_scores = model(batch_noisy, t)
             betas = noise_schedule(t, T)
 
-            batch_loss = loss_func(batch_scores, betas)
+            batch_loss = loss_func(batch_scores, betas, batch_noisy)
             batch_loss.backward()
-
 
             optimizer.step() # the link between the optimizer and the model has to be built by the rest of the team previously
 
-            epoch_loss += batch_loss
+            epoch_loss += batch_loss.item()
 
         if epoch % 100 == 0:
             print(f'{epoch}: {epoch_loss}')
