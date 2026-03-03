@@ -53,8 +53,19 @@ class ReturnPrediction(nn.Module):
         return return_value
     
 
+
 class DiffusionReturnPrediction(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim, output_dim, return_regression):
         super().__init__()
         self.diffusion = Diffusion(input_dim, hidden_dim, output_dim)
-        self.return_prediction = ReturnPrediction(input_dim, hidden_dim, output_dim)
+        self.return_prediction = return_regression
+
+    def forward(self, x_noisy, x_orig):
+        batch_scores = self.diffusion(x_noisy)
+        x_clean = reversal(x_orig)
+        batch_returns = self.return_prediction()
+        
+
+        return batch_scores, batch_returns
+
+diffusion = DiffusionReturnPrediction(return_regression)
