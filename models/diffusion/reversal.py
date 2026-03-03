@@ -1,38 +1,28 @@
 import torch
 from forward import noise_schedule
 
-def reversal(model, x, t_max, T=1000, steps=100, device='cpu'):
+def reversal(model, x, t_max, T=1000):
     model.eval()
 
     with torch.no_grad():
-        x_t = x.clone().to(device)
-
-        # equal size steps
-        timesteps = torch.linspace(t_max, 0, steps, dtype=torch.float32)
-
         # loop through consecutive pairs of images
-        for i in range(len(timesteps) - 1):
-            t_now = timesteps[i].item()
-            t_next = timesteps[i + 1].item()
+        timesteps = torch.arange(start=t_max, end=0, steps=-1) # reversed timesteps
 
-            # convert timesteps to noise using scheduler
-            sigma_now = noise_schedule(t_now, T)
-            sigma_next = noise_schedule(t_next, T)
-            sigma_tensor = torch.tensor([sigma_now], device=device, dtype=torch.float32)
+        # convert timesteps to noise using scheduler
+        var_tensor = torch.tensor(noise_schedule(timesteps, T))
+        delta_t = 1.0 / T
 
-            # model predicts noise and gives score (score = -noise / sigma)
-            noise_pred = model(x_t, sigma_tensor.expand(x_t.shape[0]))
-            score = -noise_pred / sigma_now
+        x_t = torch.float(x)
+        for t in timesteps:
+            var_t = var_tensor[t]
+            score = model(x_t, var_t)
+            
+            drift_coeff = 0.5 * (var_t ** 2) * x_t
+            drift_term = drift_coeff - 0.5 * (var_t ** 2) * score
 
-            # how much variance to remove in this step
-            d_sigma_sq = sigma_now ** 2 - sigma_next ** 2
+            noise_term = torch.sqrt(var_t * (delta_t)) * torch.randn_like(x_t)
 
-            # actual denoising
-            x_t =  x_t + d_sigma_sq * score
-
-            if sigma_next > 0:
-                noise = torch.randn_like(x_t)
-                x_t = x_t + (d_sigma_sq ** 0.5) * noise
+            x_t += drift_term * delta_t + noise_term
 
     return x_t
 
