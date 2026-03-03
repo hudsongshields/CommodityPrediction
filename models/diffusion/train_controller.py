@@ -17,7 +17,7 @@ Then go loss.backward() to calculate gradient
 optim.step()
 '''
 
-def train_controller(model, train_loader, optimizer, loss_func, epochs, t_max, T): 
+def train_controller_diffusion(model, train_loader, optimizer, loss_func, epochs, t_max, T): 
     model.train()
     # TODO: implement training loop for score-based diffusion model
     # this is pseudocode, I need to understand how each parameter is used and how to access member functions
@@ -42,6 +42,39 @@ def train_controller(model, train_loader, optimizer, loss_func, epochs, t_max, T
 
         if epoch % 100 == 0:
             print(f'{epoch}: {epoch_loss}')
+
+
+def train_controller_return(model, train_loader, epochs, optimizer, loss_func_MSE):
+    # TODO: train return regression with similar logic
+    # Compare predicted excess return to actual excess return MSE
+    model.train()
+    for epoch in range(epochs):
+        epoch_loss = 0
+        for batch in train_loader:
+            optimizer.zero_grad()
+
+            features = batch[0]
+            targets = batch[1]
+
+            results = model(features)
+
+            batch_loss = loss_func_MSE(results, targets)
+            batch_loss.backward()
+
+            optimizer.step() # the link between the optimizer and the model has to be built by the rest of the team previously
+
+            epoch_loss += batch_loss.item()
+            
+        if epoch % 100 == 0:
+            print(f'{epoch}: {epoch_loss}')
+
+
+def train_controller_main(diffusion):
+
+    trained_regression_model = train_controller_return()
+
+    # TODO: implement diffusion training with scaled regression loss
+
 
 if __name__ == 'main':
     # TODO: test vectorized version with tensors 
