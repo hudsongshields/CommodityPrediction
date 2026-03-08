@@ -7,31 +7,33 @@ import typing
 from pathlib import Path
 
 ## continuous sigma(t) schedule, exponential growth
-def noise_schedule(t, T: int, sigma_min=0.01, sigma_max=1.0):
-    return sigma_min * (sigma_max / sigma_min) ** (t / T)
+def noise_schedule(t, T: int, sigma_min=0.1, sigma_max=20.0 , exponential=False):
+    if not exponential:
+        return sigma_min + (sigma_max - sigma_min) * (t / T)
+
+    if exponential:
+        return sigma_min * (sigma_max / sigma_min) ** (t / T)
 
 
-def forward(x, t, T, noise_schedule, oneshot=True):
+def forward_process(x_0, t, T, noise_schedule, batch_betas, device, oneshot=True):
     # t_max = int(pct_T * T) -> stop prematurely
 
     # noise based on the timestep
+    x_0 = x_0.view(x_0.size(0), -1)  # flatten the image
     var_t = noise_schedule(t, T)
-    var_t = torch.as_tensor(var_t, dtype=x.dtype)
-    delta_t = torch.as_tensor(1.0 / T, dtype=x.dtype)
+    var_t = torch.as_tensor(var_t, dtype=x_0.dtype)
+    delta_t = torch.as_tensor(1.0 / T, dtype=x_0.dtype)
 
     if oneshot:
-        t_grid = torch.arange(0, t, dtype=x.dtype)
-        beta_vals = noise_schedule(t_grid, T)
-        integral_beta_t = torch.sum(beta_vals) * delta_t
-
-        decay = torch.exp(-0.5 * integral_beta_t)
-        noise_scale = torch.sqrt(torch.clamp(1 - torch.exp(-integral_beta_t), min=0.0))
-        x_t = decay * x + noise_scale * torch.randn_like(x)
+        decay = torch.exp(-0.5 * batch_betas).view(-1, 1).to(device)
+        noise_scale = torch.sqrt(torch.clamp(1 - torch.exp(-batch_betas), min=0.0)).view(-1, 1).to(device)
+        x_t = decay * x_0 + noise_scale * torch.randn_like(x_0).to(device)
+        return x_t
 
     else:
         # random noise, scale, then add to image
-        noise = torch.randn_like(x)
-        x_t = x + torch.sqrt(var_t * delta_t) * noise
+        noise = torch.randn_like(x_0).to(device)
+        x_t = x_0 + torch.sqrt(var_t * delta_t) * noise
 
     return x_t
 
@@ -69,7 +71,11 @@ if __name__ == '__main__':
     t_max = 0.8 * T
 
     for t in torch.linspace(0, t_max, steps=5):
-        x_noisy = forward(x, t, T, noise_schedule)
+        t_tensor = torch.tensor([t_max], dtype=torch.long)
+        beta_cumsum = torch.cumsum(noise_schedule(torch.arange(t_max, dtype=torch.float32), T), dim=0) * (1.0 / T)
+        batch_betas = beta_cumsum[t_tensor].view(-1, 1)
+
+        x_noisy = forward_process(x, t, T, noise_schedule, batch_betas)
 
         # scaling
         img = x_noisy.squeeze().detach().numpy()

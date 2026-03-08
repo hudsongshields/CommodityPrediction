@@ -1,31 +1,26 @@
 import torch
 from forward import noise_schedule
 
-def reversal(model, x, t_max, T=1000):
+def reverse_sde(model, x, t_start, T, noise_schedule, t_all=None, beta_all=None, beta_cumsum=None):
     model.eval()
-
     with torch.no_grad():
-        # loop through consecutive pairs of images
-        timesteps = torch.arange(start=t_max, end=0, steps=-1) # reversed timesteps
+        # ONLY keep this for testing
+        if t_all is not None and beta_all is not None and beta_cumsum is not None:
+            t_all = torch.arange(T, dtype=torch.float32)
+            beta_all = noise_schedule(t_all, T)
+            beta_cumsum = torch.cumsum(beta_all, dim=0) * (1.0 / T)
 
-        # convert timesteps to noise using scheduler
-        var_tensor = torch.tensor(noise_schedule(timesteps, T))
+        timesteps = torch.arange(t_start, 0, -1, device=x.device, dtype=torch.long)
         delta_t = 1.0 / T
+        x_t = x.float().view(x.size(0), -1).to(x.device)
 
-        x_t = torch.float(x)
-        for t in timesteps:
-            var_t = var_tensor[t]
-            score = model(x_t, var_t)
+        for t_val in timesteps:
+            t_batch = torch.full((x_t.size(0),), float(t_val.item()) / T, dtype=x_t.dtype, device=x_t.device)
             
-            drift_coeff = 0.5 * (var_t ** 2) * x_t
-            drift_term = drift_coeff - 0.5 * (var_t ** 2) * score
+            beta_t = beta_cumsum[t_val].to(x.device)
+            score = model(x_t, t_batch).view(x_t.size(0), -1)
 
-            noise_term = torch.sqrt(var_t * (delta_t)) * torch.randn_like(x_t)
+            drift = -0.5 * beta_t * x_t + beta_t * score
+            x_t = x_t + drift * delta_t
 
-            x_t += drift_term * delta_t + noise_term
-
-    return x_t
-
-if __name__ == '__main__':
-    # TODO: test the reversal function with a noisy image (see how image is denoised with decreasing time steps)
-    pass
+        return x_t

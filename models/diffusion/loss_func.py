@@ -3,15 +3,10 @@ import torch
 __all__ = ['ScoreDiffusionLoss']
 
 
-def ScoreDiffusionLoss(score, x_t, x_0, var_t):
-    loss = torch.mean((score - (x_t - x_0) / var_t) ** 2)
-    return loss
+def loss_func_diffusion(score, x_t, x_0, beta_integral):
+    mean_coeff = torch.exp(-0.5 * beta_integral)
+    var_t = 1.0 - torch.exp(-beta_integral)
+    var_t = torch.clamp(var_t, min=1e-5)
 
-
-if __name__ == '__main__':
-    score = torch.tensor([0.5, 0.3, 0.2])
-    x_t = torch.tensor([1.0, 0.8, 0.6])
-    x_0 = torch.tensor([0.0, 0.0, 0.0])
-    var_t = torch.tensor([0.1, 0.1, 0.1])
-    loss = ScoreDiffusionLoss(score, x_t, x_0, var_t)
-    print(loss)
+    target_score = (mean_coeff * x_0 - x_t) / var_t
+    return torch.mean(var_t *(score - target_score) ** 2)
