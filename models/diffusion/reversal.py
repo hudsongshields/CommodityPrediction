@@ -20,7 +20,10 @@ def reverse_sde(model, x, t_start, T, noise_schedule, t_all=None, beta_all=None,
             beta_t = beta_cumsum[t_val].to(x.device)
             score = model(x_t, t_batch).view(x_t.size(0), -1)
 
+            noise = 0.0
+            if t_val > 0:
+                noise = torch.sqrt(beta_t * delta_t) * torch.randn_like(x_t)
             drift = -0.5 * beta_t * x_t + beta_t * score
-            x_t = x_t + drift * delta_t
+            x_t = x_t + drift * delta_t + noise
 
         return x_t
