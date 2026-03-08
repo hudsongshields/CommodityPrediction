@@ -5,7 +5,7 @@ def reverse_sde(model, x, t_start, T, noise_schedule, t_all=None, beta_all=None,
     model.eval()
     with torch.no_grad():
         # ONLY keep this for testing
-        if t_all is not None and beta_all is not None and beta_cumsum is not None:
+        if t_all is None and beta_all is  None and beta_cumsum is None:
             t_all = torch.arange(T, dtype=torch.float32)
             beta_all = noise_schedule(t_all, T)
             beta_cumsum = torch.cumsum(beta_all, dim=0) * (1.0 / T)
