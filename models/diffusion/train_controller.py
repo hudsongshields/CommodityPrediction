@@ -63,30 +63,6 @@ def train_controller_diffusion(model, train_loader, optimizer, loss_func, epochs
 
 
 
-def train_controller_return(model, train_loader, epochs, optimizer, loss_func_MSE, every_n_epochs=10, device='cpu'):
-    # Compare predicted excess return to actual excess return MSE
-    model.train()
-    for epoch in range(epochs):
-        epoch_loss = 0
-        for batch in train_loader:
-            optimizer.zero_grad()
-
-            features = batch[0].to(device)
-            targets = batch[1].to(device)
-
-            results = model(features)
-
-            batch_loss = loss_func_MSE(results, targets)
-            batch_loss.backward()
-
-            optimizer.step()
-
-            epoch_loss += batch_loss.item()
-            
-        if epoch % every_n_epochs == 0:
-            print(f'{epoch}: {epoch_loss}')
-
-
 def train_controller_main(model, train_loader, epochs, optimizer, loss_func_diffusion, loss_func_MSE, t_max, T, every_n_epochs=10, noise_schedule=noise_schedule, device='cpu'):
 
     model.train()
