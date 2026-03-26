@@ -2,8 +2,9 @@ from .base_mlps import MLP, ConvolutionalMLP
 import torch.nn as nn
 
 class ReturnPrediction(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim, hidden_dim, output_dim, diffusion):
         super().__init__()
+        self.diffusion = diffusion.detach()
         self.return_regression = MLP(input_dim, hidden_dim, output_dim)
     
     def forward(self, x):
