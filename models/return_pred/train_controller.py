@@ -1,6 +1,7 @@
 
 def train_controller_return(model, train_loader, epochs, optimizer, loss_func_MSE, every_n_epochs=10, device='cpu'):
     # Compare predicted excess return to actual excess return MSE
+
     model.train()
     for epoch in range(epochs):
         epoch_loss = 0
