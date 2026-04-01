@@ -16,9 +16,19 @@ class DiffusionReturnPrediction(nn.Module):
         # Shared MLP Prediction Head
         self.shared_mlp = nn.Sequential(
             nn.Linear(gnn_hidden, gnn_hidden // 2),
+            nn.Dropout(p=0.2), # MC-Dropout injected here
             nn.SiLU(),
             nn.Linear(gnn_hidden // 2, 1) # Outputs scalar excess return
         )
+
+    def enable_dropout(self):
+        """
+        Helper method to force ONLY dropout layers into train mode during inference
+        to support Monte-Carlo Uncertainty Sampling.
+        """
+        for m in self.modules():
+            if m.__class__.__name__.startswith('Dropout'):
+                m.train()
 
     def extract_features(self, x_cond, edge_index):
         """
