@@ -74,7 +74,15 @@ def train_controller_ds_tgnn(model, train_loader, epochs, opt_diff, opt_pred, sc
             predicted_returns = model(denoised_repr, baseline_edge_index) # [B, N]
             
             # Compute MSE on the 30-day target vs predictions
-            loss_pred = nn.functional.mse_loss(predicted_returns, target_excess_returns)
+            # Magnitude-Weighted MSE (Exp 3)
+            # weights scale the loss penalty proportional to the rarity/extremity of the return
+            raw_loss = (predicted_returns - target_excess_returns) ** 2
+            
+            # Scale factor 10.0: If target is 0.05 (+5%), weight is 1.5x. 
+            # If target is 0.20 (+20%), weight is 3.0x.
+            weights = 1.0 + torch.abs(target_excess_returns) * 10.0
+            
+            loss_pred = torch.mean(raw_loss * weights)
             loss_pred.backward()
             opt_pred.step()
             
