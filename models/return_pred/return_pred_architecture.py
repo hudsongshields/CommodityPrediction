@@ -33,7 +33,6 @@ class ReturnPrediction(nn.Module):
         num_seasons=4,
         season_embed_dim=8,
         use_season=True,
-        use_raw=False,
         t_score=0.5,
         lstm_layers=1,
         dropout=0.0,
@@ -42,7 +41,6 @@ class ReturnPrediction(nn.Module):
         super().__init__()
         self.diffusion = diffusion
         self.use_season = use_season
-        self.use_raw = use_raw
         self.t_score = t_score
 
         if freeze_diffusion:
@@ -50,7 +48,7 @@ class ReturnPrediction(nn.Module):
                 p.requires_grad = False
 
         score_mult = len(t_score) if isinstance(t_score, (list, tuple)) else 1
-        input_dim = feature_dim * (score_mult + (1 if use_raw else 0))
+        input_dim = feature_dim * score_mult
         if use_season:
             self.season_embedding = nn.Embedding(num_seasons, season_embed_dim)
             input_dim += season_embed_dim
@@ -93,8 +91,6 @@ class ReturnPrediction(nn.Module):
         scores = self._score_features(x, t_score)
 
         feats = scores
-        if self.use_raw:
-            feats = torch.cat([x, scores], dim=-1)
 
         if self.use_season:
             if season_idx.dim() == 1:

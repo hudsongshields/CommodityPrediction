@@ -89,6 +89,9 @@ def eval_mse(model, val_loader, loss_func_MSE, device="cpu", t_score=None):
     return total / max(n, 1)
 
 
+# Recommended arguments:
+# python3.12 models/return_pred/train_controller.py --target-col Return_Corn --use-season --seq-len 60 --horizons 5 --t-score 0.2,0.5,0.8 --seeds 1,2,3,4,5
+
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parents[2]
     if str(project_root) not in sys.path:
@@ -141,14 +144,13 @@ if __name__ == "__main__":
     parser.add_argument("--t-score", type=str, default="0.5")
     parser.add_argument("--val-split", type=float, default=0.2)
     parser.add_argument("--use-season", action="store_true")
-    parser.add_argument("--use-raw", action="store_true")
+
     parser.add_argument("--diffusion-checkpoint", type=str, default="")
     parser.add_argument("--diff-epochs", type=int, default=50)
     parser.add_argument("--diff-lr", type=float, default=1e-3)
     parser.add_argument("--diff-t-max", type=int, default=200)
     parser.add_argument("--diff-T", type=int, default=1000)
     parser.add_argument("--patience", type=int, default=5)
-    parser.add_argument("--export-head", type=str, default="")
     parser.add_argument("--seeds", type=str, default="42,1337,2024")
     args = parser.parse_args()
 
@@ -283,7 +285,6 @@ if __name__ == "__main__":
             mlp_hidden=[64, 32],
             output_dim=len(horizons),
             use_season=args.use_season,
-            use_raw=args.use_raw,
             t_score=t_score,
             lstm_layers=1,
             dropout=0.0,
@@ -331,12 +332,3 @@ if __name__ == "__main__":
         print(f"Seed {seed} | Eval Accuracy (sign): {accuracy:.4f}")
         print(f"Seed {seed} | Eval Bias (mean error): {bias:.6f}")
         print(f"Seed {seed} | Eval Variance (error var): {variance:.6f}")
-
-        if args.export_head:
-            if len(seeds) == 1:
-                out_path = args.export_head
-            else:
-                out_path = f"{args.export_head}_seed{seed}"
-            torch.save(model.head.state_dict(), out_path)
-            print(f"Saved head weights to {out_path}")
-
