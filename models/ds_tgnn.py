@@ -3,106 +3,96 @@ import torch.nn as nn
 from torch_geometric.nn import GCNConv
 
 class DiffusionReturnPrediction(nn.Module):
-    def __init__(self, denoiser, input_dim, lstm_hidden, gnn_hidden, use_diffusion=True, use_lstm=True, use_gnn=True):
+    def __init__(self, denoiser, input_dim, lstm_hidden, gnn_hidden, n_hubs=14, n_out=8, use_diffusion=True):
+        """
+        V2.1.1 Triple-Signal Score-Conditioned Upgrade.
+        Architecture: Triple-Input Encoder [Raw, Clean, Score].
+        Target: Excess Return (Alpha) over the DBA benchmark.
+        """
         super().__init__()
         self.denoiser = denoiser 
         self.use_diffusion = use_diffusion
-        self.use_lstm = use_lstm
-        self.use_gnn = use_gnn
+        self.n_hubs = n_hubs
+        self.n_out = n_out
         
-        # Temporal Encoder (LSTM)
-        if self.use_lstm:
-            self.lstm = nn.LSTM(input_size=input_dim, hidden_size=lstm_hidden, batch_first=True)
-        else:
-            # If no LSTM, we use a simple linear projection to match the expected GNN/MLP input dim
-            self.feature_proj = nn.Linear(input_dim, lstm_hidden)
+        # Triple-Input Pathway (Combined_Dim = 3 * F = 12)
+        # 1. Raw Weather (4)
+        # 2. Denoised Weather (4)
+        # 3. Manifold Score (4)
+        self.combined_in_dim = input_dim * 3
         
-        # Spatial Encoder (GNN)
-        if self.use_gnn:
-            self.gnn = GCNConv(in_channels=lstm_hidden, out_channels=gnn_hidden)
-            mlp_in_dim = gnn_hidden
-        else:
-            mlp_in_dim = lstm_hidden
+        # Temporal Component (Recalibrated for 12-dim input)
+        self.lstm = nn.LSTM(input_size=self.combined_in_dim, hidden_size=lstm_hidden, batch_first=True)
         
-        # Shared MLP Prediction Head
+        # Spatial Component
+        self.gnn = GCNConv(in_channels=lstm_hidden, out_channels=gnn_hidden)
+        
+        # Prediction Head (MC-Dropout enabled)
         self.shared_mlp = nn.Sequential(
-            nn.Linear(mlp_in_dim, mlp_in_dim // 2),
-            nn.Dropout(p=0.2), # MC-Dropout injected here
+            nn.Linear(gnn_hidden, gnn_hidden // 2),
+            nn.Dropout(p=0.2), 
             nn.SiLU(),
-            nn.Linear(mlp_in_dim // 2, 1) # Outputs scalar excess return
+            nn.Linear(gnn_hidden // 2, 1) 
         )
+        
+        # Map 14 Hubs -> 8 Commodities
+        self.spatial_pool = nn.Linear(n_hubs, n_out)
 
     def enable_dropout(self):
-        """
-        Helper method to force ONLY dropout layers into train mode during inference
-        to support Monte-Carlo Uncertainty Sampling.
-        """
+        """Enable MC-Dropout during inference."""
         for m in self.modules():
             if m.__class__.__name__.startswith('Dropout'):
                 m.train()
 
-    def extract_features(self, x_cond, edge_index):
+    def extract_features(self, x_combined, edge_index):
         """
-        x_cond: meteorological sequence [B, N, T, F] (possibly denoised)
-        edge_index: [2, E] constant graph
+        x_combined: [B, N, T, F_total=12]
         """
-        B, N, T, F = x_cond.shape
+        B, N, T, F_total = x_combined.shape
+        # Process all hubs in parallel: [B*N, T, 12]
+        x_in = x_combined.reshape(B * N, T, F_total)
+        _, (h_n, _) = self.lstm(x_in)
+        h_t = h_n[-1].reshape(B, N, -1) # [B, N, H_lstm]
         
-        # --- PHASE 1: TEMPORAL AGGREGATION ---
-        if self.use_lstm:
-            # Flatten B and N to run LSTM in parallel: [B*N, T, F]
-            x_lstm_in = x_cond.view(B * N, T, F)
-            lstm_out, (h_n, c_n) = self.lstm(x_lstm_in)
-            # Take final hidden state per sequence: [B*N, H_lstm]
-            h_temporal = h_n[-1] 
-            node_features = h_temporal.view(B, N, -1) # [B, N, H_lstm]
-        else:
-            # Simple temporal pooling: Mean over time [B, N, F]
-            x_mean = x_cond.mean(dim=2)
-            node_features = self.feature_proj(x_mean) # Project to match dim: [B, N, H_lstm]
-
-        # --- PHASE 2: SPATIAL COUPLING (GNN) ---
-        if self.use_gnn:
-            gnn_outs = []
-            for i in range(B):
-                # [N, H] -> [N, H_out]
-                out_i = self.gnn(node_features[i], edge_index)
-                gnn_outs.append(out_i)
-            return torch.stack(gnn_outs, dim=0) # [B, N, H_gnn]
-        else:
-            # Skip GNN, return node features directly
-            return node_features # [B, N, H_lstm]
+        gnn_outs = []
+        for i in range(B):
+            gnn_outs.append(self.gnn(h_t[i], edge_index))
+        return torch.stack(gnn_outs, dim=0) # [B, N, H_gnn]
 
     def forward(self, x, edge_index):
         """
-        x: Input meteorological tensor [B, N, T, F]
-        edge_index: Graph connectivity [2, E]
+        x: Raw exogenous weather [B, T=180, N=14, F=4]
         """
+        # Transpose to canonical [B, N, T, F]
+        x = x.transpose(1, 2)
+        B, N, T, F = x.shape
+        
         if self.use_diffusion:
-            # Objective: Get single-step denoised expectation (t ~ 0.1)
-            # This logic mirrors the transformation in the training controller
-            B, N, T, F = x.shape
-            x_flat = x.view(B, -1)
-            
-            # Using a fixed low noise level for deterministic expectation during prediction
-            sigma_low = 0.1 
-            
-            # Prediction of noise component
-            # Note: sigma_low is passed as a constant tensor for the denoiser's time-embedding
+            # 1. State Estimation
+            x_flat = x.reshape(B, -1)
+            sigma_low = 0.1
             t_const = torch.full((B, 1), sigma_low, device=x.device)
-            z_pred = self.denoiser(x_flat, t_const)
+            z_pred_flat = self.denoiser(x_flat, t_const)
             
-            # Denoised representation (x_0 estimate)
-            x_cond_flat = x_flat - z_pred * sigma_low
-            x_input = x_cond_flat.view(B, N, T, F)
+            # 2. Reshape Denoising Signal
+            z_pred = z_pred_flat.reshape(B, N, T, F)
+            
+            # 3. Component Generation
+            # x_clean: The underlying "Normal" weather manifold projection
+            # scores: The "Off-Manifold" surprise gradient (Residual)
+            scores = z_pred * sigma_low
+            x_clean = x - scores
+            
+            # 4. Triple-Signal Concatenation: [B, N, T, 12 features]
+            x_combined = torch.cat([x, x_clean, scores], dim=-1)
         else:
-            # Use raw weather features directly
-            x_input = x
+            # Baseline compatibility: Zero-padded pseudo-signals
+            zero_signal = torch.zeros_like(x)
+            x_combined = torch.cat([x, zero_signal, zero_signal], dim=-1)
 
-        # [B, N, H_gnn]
-        features = self.extract_features(x_input, edge_index)
+        # Spatiotemporal Information Processing
+        features = self.extract_features(x_combined, edge_index)
         
-        # --- Shared MLP ---
-        out = self.shared_mlp(features)
-        
-        return out.squeeze(-1) # -> [B, N]
+        # Alpha Mapping
+        out_hubs = self.shared_mlp(features).squeeze(-1) 
+        return self.spatial_pool(out_hubs)

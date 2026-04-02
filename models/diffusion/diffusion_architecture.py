@@ -34,7 +34,7 @@ class Diffusion(nn.Module):
         t_embed = self.time_embed(t)
             
         if not self.use_conv:
-            x = x.view(x.size(0), -1)
+            x = x.reshape(x.size(0), -1)
             t_embed = self.time_to_input(t_embed)
             score = self.score_regression(x + t_embed)
 
