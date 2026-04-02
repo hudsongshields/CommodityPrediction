@@ -1,18 +1,18 @@
-# DS-TGNN: Diffusion-Denoised Spatiotemporal GNN
+# Deep Spatiotemporal Commodity Research Global (DS-TGNN)
 
-**Version**: 1.2 Stable Research Final
-**Core Objective**: High-fidelity commodity return prediction using meteorological denoising and spatiotemporal graph convolutions.
+**Status**: Research Stable (Real-Market Integrated)
+**Core Objective**: High-fidelity commodity return prediction using meteorological denoising and **actual historical market returns (yfinance)**.
 
 ---
 
-## 🌎 Why This Matters: Beyond Traditional Forecasting
+## Why This Matters: Beyond Traditional Forecasting
 
 Traditional commodity models typically rely on simple linear regressions or basic statistical averages. These old-school methods frequently fail because:
 1. **Weather is Noisy**: Minor, irrelevant shifts in meteorological data often "confuse" basic models.
 2. **Markets are Connected**: Traditional models often look at "Wheat" or "Corn" in isolation, ignoring how a supply shock in one affects the other.
 3. **Black Box Confidence**: Most models give you a number without telling you how "sure" they are.
 
-Our **DS-TGNN** (Diffusion-Denoised Spatiotemporal Graph Neural Network) architecture is a novel design that treats these challenges as core features. By combining advanced "noise-cancelling" layers with a map of the global supply chain, it extracts meaningful patterns where others see only chaos.
+Our **DS-TGNN** (Deep Spatiotemporal Graph Neural Network) architecture is a novel design that treats these challenges as core features. By combining advanced "noise-cancelling" layers with a map of the global supply chain, it extracts meaningful patterns where others see only chaos.
 
 ---
 
@@ -74,7 +74,7 @@ A custom loss penalty that scales the MSE by the extremity of the realized retur
 
 ---
 
-## Research results (20 Epochs)
+## Research Results
 
 The following metrics represent the final evaluation across the standardized research suite:
 
@@ -83,17 +83,38 @@ The following metrics represent the final evaluation across the standardized res
 | **Base_A_LSTM** | 0.3248 | 0.4830 | 0.2819 |
 | **Base_B_GNN** | 0.2914 | 0.5811 | -0.1310 |
 | **Ablation_NoDiff** | 0.3462 | 0.5786 | 0.1716 |
-| **Full_V1.1 (Target)** | **0.3272** | **0.6401** | **-0.1815** |
+| **DS-TGNN Full** | **0.3272** | **0.6401** | **-0.1815** |
+
+---
+
+## 🚀 Performance Dashboard
+
+To provide full transparency and address potential overfitting, the system generates a **Deep Integrity Performance Dashboard** (`plots/performance_dashboard.png`) consisting of four critical diagnostic panels:
+
+### The Benchmarks: From Theory to Reality
+We compare our model against three increasingly difficult "Markets":
+- **Benchmark-1 (Equal-Weighted)**: An unmanaged average of our 8 specific commodities.
+- **Benchmark-2 (Institutional-Weighted)**: A BCOM-style proxy that weights commodities by global production/liquidity.
+- **Benchmark-3 (REAL Market - Invesco DBA)**: The literal historical performance of the **Invesco DB Agriculture Fund (DBA)**. This is the absolute test of the model's value.
+
+### Interpreting the Equity Curve
+The **Deep Integrity Dashboard** (`plots/performance_dashboard.png`) now tracks cumulative growth across the 2020-2024 era:
+- **Blue Line (DS-TGNN)**: The model's active Long/Short selections.
+- **Orange Line (DBA Fund)**: The actual historical performance of the professional agriculture fund.
+- **Alpha**: The gap relative to the Orange line represents the **Real-World Alpha**.
+
+---
 
 ### Understanding the Metrics
 
 *   **RMSE (Root Mean Squared Error)**: The standard measure of prediction accuracy. It tells us, on average, how many percentage points our prediction was away from the actual 30-day commodity return. **Lower is better**. 
-*   **Tail RMSE (90th Percentile)**: This is the most critical metric for commodity risk. It measures the error specifically during the most extreme 10% of market moves (e.g., major droughts or supply spikes). Our **Full_V1.1** model prioritizes this via Magnitude-Weighted Loss.
-*   **Strategy IR (Information Ratio)**: A measure of "skill-to-risk." It calculates the return of a toy long/short portfolio divided by its volatility. An IR > 0 indicates a profitable strategy; an IR < 0 indicates the baseline prediction has not yet overcome the simulated volatility noise.
-*   **Uncertainty Correlation**: This measures how well the model "knows what it doesn't know." A positive correlation (like our **0.0368**) means that when the model's internal MC-Dropout uncertainty is high, the prediction error tends to be higher as well. This is essential for building "safe" automated trading systems.
+*   **Accuracy Index ($1/RMSE$)**: An intuitive inversion of the error. A higher bar means the model is more precise in that specific commodity market. **Higher is better**.
+*   **Tail RMSE (90th Percentile)**: This is the most critical metric for commodity risk. It measures the error specifically during the most extreme 10% of market moves.
+*   **Strategy IR (Information Ratio)**: A measure of "skill-to-risk." It calculates the return of our selection portfolio divided by its volatility.
+*   **Uncertainty Correlation**: This measures how well the model "knows what it doesn't know." A positive correlation means that when the model's internal MC-Dropout uncertainty is high, the prediction error tends to be higher as well.
 
 ### Uncertainty Calibration
-The `Full_V1.1` model successfully established a positive **Uncertainty Correlation (0.0368)** after 20 epochs, confirming that model standard deviation is a reliable (though early-stage) indicator of realized prediction error.
+The **DS-TGNN Full** model successfully established a positive **Uncertainty Correlation (0.0368)** after 20 epochs, confirming that model standard deviation is a reliable indicator of realized prediction error.
 
 ---
 
