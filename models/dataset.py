@@ -41,22 +41,25 @@ class CommodityWeatherDataset(Dataset):
         
         return weather_history, target_returns
 
-def get_dataloaders(batch_size=16, N=8, window_size=180, F=5, target_horizon=30):
+def get_dataloaders(batch_size=16, N=8, window_size=180, F=5, target_horizon=30, use_embargo=True):
     # Total days simulated: ~ 4 years
     total_days = 1500  
     base_ds = CommodityWeatherDataset(continuous_steps=total_days, N=N, window_size=window_size, F=F, target_horizon=target_horizon)
     
     # We have valid_indices corresponding to the sequential ends of the 180-day windows.
-    # We must chronologically split them, inserting a 30-day embargo gap between each split.
+    # We must chronologically split them.
     valid_len = len(base_ds)
     
     # E.g., 60% Train, 20% Val, 20% Test
     train_end = int(valid_len * 0.6)
     
-    val_start = train_end + target_horizon # THE EMBARGO: Shift start by 30 days
+    # If use_embargo=True, shift the start of Val/Test by the target horizon (30 days)
+    gap = target_horizon if use_embargo else 0
+    
+    val_start = train_end + gap
     val_end = val_start + int(valid_len * 0.2)
     
-    test_start = val_end + target_horizon  # THE EMBARGO: Shift start by 30 days
+    test_start = val_end + gap
     test_end = valid_len
     
     train_idx = list(range(0, train_end))
