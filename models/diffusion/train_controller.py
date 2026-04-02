@@ -99,14 +99,16 @@ def train_controller_main(model, train_loader, epochs, optimizer, loss_func_diff
 
             # forward diffusion
             t = torch.randint(0, t_max, (features.shape[0],), dtype=features.dtype).to(device)
-            features_noisy = forward(features, T, t, device=device)
+            betas = noise_schedule(t, T)
+            beta_cumsum = torch.cumsum(betas, dim=0) * (1.0 / T)
+            batch_betas = beta_cumsum[t].view(-1, 1).to(device)
+            features_noisy = forward_process(features, t, T, noise_schedule, batch_betas, device=device)
 
             # score prediction
-            scores = model.diffusion(features_noisy, t)
+            scores = model.diffusion(features_noisy, t.to(features_noisy.dtype) / T)
 
             # loss for diffusion
-            betas = noise_schedule(t, T).to(device)
-            loss_diffusion = loss_func_diffusion(scores, betas, features_noisy)
+            loss_diffusion = loss_func_diffusion(scores, features_noisy, features, batch_betas)
             
 
             """ 
@@ -121,7 +123,7 @@ def train_controller_main(model, train_loader, epochs, optimizer, loss_func_diff
             sampled_targets = targets[torch.randperm(targets.size(0))]
 
             # generate return preds from clean version of sampled features
-            sampled_features_clean = reversal(model.diffusion, sampled_features, t_max, T, device=device)
+            sampled_features_clean = reverse_sde(model.diffusion, sampled_features, t_max, T, noise_schedule=noise_schedule, device=device)
             return_preds = model.return_regression(sampled_features_clean)
             loss_return = loss_func_MSE(return_preds, sampled_targets)
 
@@ -136,9 +138,8 @@ def train_controller_main(model, train_loader, epochs, optimizer, loss_func_diff
 
 
 if __name__ == '__main__':
-    import argsparse
     import sys
-    
+
     parser = argparse.ArgumentParser(description='Hypertuning diffusion model for commodity price prediction')
 
     parser.add_argument('--epochs', type=int, default=1000)
@@ -148,7 +149,7 @@ if __name__ == '__main__':
 
     model = DiffusionReturnPrediction(input_dim=..., hidden_dim=..., output_dim=..., return_regression=...)
     loss_func_MSE = torch.nn.MSELoss()
-    loss_func_diffusion = loss_func.ScoreDiffusionLoss()
+    loss_func_diffusion = loss_func.loss_func_diffusion
     optimizer = torch.optim.Adam(model.parameters(), lr=...)
 
     train_controller_main(

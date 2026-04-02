@@ -1,3 +1,5 @@
+import torch
+
 
 def evaluate_model(model, test_loader, loss_func):
     model.eval()

@@ -1,7 +1,5 @@
 import torch
 
-__all__ = ['ScoreDiffusionLoss']
-
 
 def loss_func_diffusion(score, x_t, x_0, beta_integral):
     mean_coeff = torch.exp(-0.5 * beta_integral)
