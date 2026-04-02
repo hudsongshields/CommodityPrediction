@@ -101,6 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--t-score", type=str, default="0.5")
     parser.add_argument("--val-split", type=float, default=0.2)
     parser.add_argument("--use-season", action="store_true")
+    parser.add_argument("--use-raw", action="store_true")
     parser.add_argument("--diffusion-checkpoint", type=str, default="")
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument("--export-head", type=str, default="")
@@ -207,7 +208,7 @@ if __name__ == "__main__":
         mlp_hidden=[64, 32],
         output_dim=len(horizons),
         use_season=args.use_season,
-        use_raw=False,
+        use_raw=args.use_raw,
         t_score=t_score,
         lstm_layers=1,
         dropout=0.0,
