@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import json
 import matplotlib.pyplot as plt
+import seaborn as sns
 from datetime import datetime
 
 # --- OS-LEVEL DLL FIX ---
@@ -229,6 +230,10 @@ def run_standard_suite(fast_dev=False):
         plt.legend()
         plt.savefig(f"plots/loss_{cfg['name']}.png")
         plt.close()
+
+        # If it's the Full_V1.1 model, save raw data for detailed notebook analysis
+        if cfg['name'] == "Full_V1.1":
+            np.savez('results/v1_1_detailed_results.npz', preds=p, targets=t, stds=s)
         
     # Save Summary Table
     df = pd.DataFrame(summary_data)
@@ -245,6 +250,34 @@ def run_standard_suite(fast_dev=False):
     plt.savefig("plots/tail_performance_comparison.png")
     
     print("📈 Comparison plots saved to plots/")
+    
+    # Generate Uncertainty Calibration Plot (Hexbin)
+    full_res_path = 'results/v1_1_detailed_results.npz'
+    if os.path.exists(full_res_path):
+        data = np.load(full_res_path)
+        p, s, t = data['preds'].ravel(), data['stds'].ravel(), data['targets'].ravel()
+        abs_err = np.abs(p - t)
+        
+        plt.figure(figsize=(10, 8))
+        plt.hexbin(s, abs_err, gridsize=30, cmap='YlOrRd', mincnt=1)
+        plt.colorbar(label='Sample Density')
+        plt.xlabel('Model Uncertainty (MC-Dropout Std)')
+        plt.ylabel('Absolute Prediction Error')
+        plt.title('Uncertainty Calibration: Error vs. Confidence (Full_V1.1)')
+        
+        # Add regression trend line
+        sns.regplot(x=s, y=abs_err, scatter=False, color='blue', label='Calibration Trend')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig("plots/uncertainty_calibration_hexbin.png")
+        print("📊 Uncertainty calibration hexbin saved to plots/uncertainty_calibration_hexbin.png")
+        
+    # Final Result Table to Console
+    print("\n" + "="*50)
+    print("      FINAL EXPERIMENT SUMMARY (V1.2)")
+    print("="*50)
+    print(df[['name', 'RMSE', 'Tail_RMSE', 'Strategy_IR', 'Uncertainty_Corr']].to_string(index=False))
+    print("="*50)
 
 if __name__ == "__main__":
     import argparse
