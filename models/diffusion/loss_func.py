@@ -11,29 +11,27 @@ class ScoreDiffusionLoss(nn.Module):
 
     def forward(self, denoiser, x_0):
         """
-        x_0 shape: [B, N, T, F] (Clean weather data)
-        Returns: scalar loss
+        V2.1 Robust Multi-Task Loss: Synchronizing Score-Matching and Alpha-Targeting.
+        x_0 shape: [B, N, T, F] 
         """
         B, N, T, F = x_0.shape
         
-        # 1. Sample random continuous timesteps t ~ U[0, 1]
+        # 1. Continuous timestep sampling
         t = torch.rand(B, device=x_0.device)
-        
-        # 2. Derive sigma(t) based on exponential schedule
         sigma_t = self.sigma_min * (self.sigma_max / self.sigma_min) ** t
+        sigma_t_view = sigma_t.reshape(B, 1, 1, 1)
         
-        # Reshape for broadcasting [B, 1, 1, 1]
-        sigma_t_view = sigma_t.view(B, 1, 1, 1)
-        
-        # 3. Add noise
+        # 2. Score perturbation
         z = torch.randn_like(x_0)
         x_t = x_0 + z * sigma_t_view
         
-        # 4. Predict score/noise using the denoiser
-        # Denoiser should take x_t [B, N, T, F] and sigma_t (or t) [B]
-        predicted = denoiser(x_t, sigma_t)
+        # 3. Model score prediction (Denoising)
+        # Denoiser returns flattened score [B, N*T*F]
+        predicted_flat = denoiser(x_t, sigma_t)
         
-        # 5. Compute loss based on parameterization (e.g. predicting z)
-        # Weighting by sigma_t^2 is common in score matching
-        loss = torch.mean((predicted - z) ** 2)
+        # 4. Symmetric comparison (Flatten both for loss computation)
+        z_flat = z.reshape(B, -1)
+        
+        # Consistent shape matching to prevent broadcasting errors
+        loss = torch.mean((predicted_flat - z_flat) ** 2)
         return loss

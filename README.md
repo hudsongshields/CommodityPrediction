@@ -1,7 +1,7 @@
 # Deep Spatiotemporal Commodity Research Global (DS-TGNN)
 
-**Status**: Research Stable (Real-Market Integrated)
-**Core Objective**: High-fidelity commodity return prediction using meteorological denoising and **actual historical market returns (yfinance)**.
+**Status**: Research Operational (Real-Global Integrated)
+**Core Objective**: High-fidelity commodity return prediction using **30 global geographic weather hubs** (Open-Meteo) and **real historical market returns** (yfinance).
 
 ---
 
@@ -87,7 +87,7 @@ The following metrics represent the final evaluation across the standardized res
 
 ---
 
-## 🚀 Performance Dashboard
+## Performance Dashboard
 
 To provide full transparency and address potential overfitting, the system generates a **Deep Integrity Performance Dashboard** (`plots/performance_dashboard.png`) consisting of four critical diagnostic panels:
 

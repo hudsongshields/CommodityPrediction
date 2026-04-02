@@ -12,13 +12,13 @@ def reverse_sde(model, x, t_start, T, noise_schedule, t_all=None, beta_all=None,
 
         timesteps = torch.arange(t_start, 0, -1, device=x.device, dtype=torch.long)
         delta_t = 1.0 / T
-        x_t = x.float().view(x.size(0), -1).to(x.device)
+        x_t = x.float().reshape(x.size(0), -1).to(x.device)
 
         for t_val in timesteps:
             t_batch = torch.full((x_t.size(0),), float(t_val.item()) / T, dtype=x_t.dtype, device=x_t.device)
             
             beta_t = beta_cumsum[t_val].to(x.device)
-            score = model(x_t, t_batch).view(x_t.size(0), -1)
+            score = model(x_t, t_batch).reshape(x_t.size(0), -1)
 
             noise = 0.0
             if t_val > 0:

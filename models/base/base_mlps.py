@@ -38,7 +38,7 @@ class ConvolutionalMLP(nn.Module):
         # t_embed: (B, t_hidden_dim)
         
         for layer in range(len(self.conv_layers)):
-            x = self.conv_layers[layer](x) + self.time_layers[layer](t_embed).view(t_embed.size(0), -1, 1, 1)
+            x = self.conv_layers[layer](x) + self.time_layers[layer](t_embed).reshape(t_embed.size(0), -1, 1, 1)
             x = F.silu(x)
         x = self.final_conv_layer(x)
         return x
