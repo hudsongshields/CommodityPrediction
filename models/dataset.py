@@ -25,22 +25,25 @@ class CommodityWeatherDataset(Dataset):
         if get_real_commodity_returns:
             print("🚀 Fetching REAL historical market returns for backtesting...")
             # Fetch for the entire simulation period
-            m_returns, m_bench, m_dates = get_real_commodity_returns(target_horizon=target_horizon)
+            # v1.11: Now using both targets (30d) and valuations (1d)
+            m_targets, m_daily, B_targets, B_daily, m_dates = get_real_commodity_returns(target_horizon=target_horizon)
+            
             # Align simulation length to available market data
-            available_steps = len(m_returns)
+            available_steps = len(m_targets)
             self.continuous_steps = min(continuous_steps, available_steps)
             
             # Use real returns (convert to torch)
-            m_vals = m_returns.values[:available_steps]
-            self.global_returns = torch.tensor(m_vals, dtype=torch.float32)
+            self.global_returns = torch.tensor(m_targets.values[:available_steps], dtype=torch.float32)
+            self.global_daily_returns = torch.tensor(m_daily.values[:available_steps], dtype=torch.float32)
             self.dates = m_dates[:available_steps]
             
-            # Synchronize weather signal (trim to match market-step continuity)
+            # Master Sync: Anchor Weather Signal to the Trading Calendar (approx 252 days/yr)
             self.global_timeline = self.global_timeline[:available_steps]
             self.continuous_steps = available_steps
         else:
             # Fallback to Mock simulation
             self.global_returns = torch.randn(continuous_steps, N) * 0.05
+            self.global_daily_returns = torch.randn(continuous_steps, N) * 0.005 # Smaller daily vol
             self.dates = pd.date_range(start='2020-01-01', periods=continuous_steps, freq='D')
             
         self.valid_indices = self.continuous_steps - window_size - target_horizon
@@ -57,13 +60,16 @@ class CommodityWeatherDataset(Dataset):
         weather_history = weather_history.transpose(0, 1)     # Now [N, 180, F]
         
         # Target is the cumulative return exactly `target_horizon` days after the window ends
-        # (Mock representation of cumulative sum over the horizon)
-        target_returns = self.global_returns[end_t : end_t + self.target_horizon].sum(dim=0)
+        # (30-day forward return for training)
+        target_returns = self.global_returns[end_t] # We want the target at the precise moment the window closes
+        
+        # Valuation is the 1-day arithmetic return for the date the window ends
+        daily_valuation = self.global_daily_returns[end_t]
         
         # Also return the date at which the window ends (for backtesting x-axis)
         end_date = str(self.dates[end_t])
         
-        return weather_history, target_returns, end_date
+        return weather_history, target_returns, daily_valuation, end_date
 
 def get_dataloaders(batch_size=16, N=8, window_size=180, F=5, target_horizon=30, use_embargo=True):
     # Total days simulated: ~ 4 years

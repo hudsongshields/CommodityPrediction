@@ -5,9 +5,26 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 import json
+import random
+import matplotlib
+matplotlib.use('Agg') # Force non-interactive backend for headless stability
 import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime
+
+def set_seed(seed=42):
+    """
+    Forces all random number generators to use a fixed seed
+    to ensure perfectly reproducible research results.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    print(f"✅ Global Seed Set: {seed} (Deterministic Mode Active)")
 
 # --- OS-LEVEL DLL FIX ---
 prefix = sys.prefix
@@ -161,7 +178,7 @@ def run_experiment(config):
     for epoch in range(epochs):
         model.train()
         train_losses = []
-        for x, y, _ in train_l:
+        for x, y, v, d in train_l:
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
             p = model(x, edge_index)
@@ -177,7 +194,7 @@ def run_experiment(config):
         model.eval()
         val_losses = []
         with torch.no_grad():
-            for x, y, _ in val_l:
+            for x, y, v, d in val_l:
                 x, y = x.to(device), y.to(device)
                 p = model(x, edge_index)
                 v_loss = torch.mean((p - y)**2).item()
@@ -192,52 +209,61 @@ def run_experiment(config):
     model.eval()
     if mc_samples > 1:
         model.enable_dropout()
+    
+    all_preds, all_stds, all_targets, all_daily_val, all_dates = [], [], [], [], []
+    for batch in test_l:
+        x, target, daily_val, batch_dates = batch
+        x = x.to(device)
         
-    all_preds, all_stds, all_targets, all_dates = [], [], [], []
-    with torch.no_grad():
-        for x, y, d in test_l:
-            x, y = x.to(device), y.to(device)
-            # MC-Dropout sampling
-            mc_outputs = torch.stack([model(x, edge_index) for _ in range(mc_samples)])
-            mean_p = mc_outputs.mean(dim=0)
-            std_p = mc_outputs.std(dim=0)
-            
-            all_preds.append(mean_p.cpu())
-            all_stds.append(std_p.cpu())
-            all_targets.append(y.cpu())
-            all_dates.extend(d)
-            
+        with torch.no_grad():
+            if mc_samples > 1:
+                model.enable_dropout()
+                preds = [model(x, edge_index).cpu() for _ in range(mc_samples)]
+                preds = torch.stack(preds) # [MC, B, N]
+                pred_mean = preds.mean(dim=0)
+                pred_std = preds.std(dim=0)
+            else:
+                pred_mean = model(x, edge_index).cpu()
+                pred_std = torch.zeros_like(pred_mean)
+        
+        all_preds.append(pred_mean)
+        all_targets.append(target)
+        all_stds.append(pred_std)
+        all_daily_val.append(daily_val)
+        all_dates.extend(batch_dates)
+
     p_conc = torch.cat(all_preds).numpy()
     t_conc = torch.cat(all_targets).numpy()
     s_conc = torch.cat(all_stds).numpy()
+    v_conc = torch.cat(all_daily_val).numpy()
     test_dates = pd.to_datetime(all_dates)
     
-    strat_returns = compute_strategy_returns(torch.tensor(p_conc), torch.tensor(t_conc))
-    bench_returns_ew = compute_benchmark_returns(torch.tensor(t_conc))
-    bench_returns_w = compute_weighted_benchmark_returns(torch.tensor(t_conc))
+    # Strat returns using DAILY valuations (Arithmetic mean of top/bottom)
+    strat_daily = compute_strategy_returns(torch.tensor(p_conc), torch.tensor(v_conc))
     
-    # Fetch real ETF benchmark return (DBA) if available (V1.5/V1.7)
+    # Benchmarks using DAILY valuations
+    bench_daily_ew = compute_benchmark_returns(torch.tensor(v_conc))
+    bench_daily_w = compute_weighted_benchmark_returns(torch.tensor(v_conc))
+    
+    # Fetch real ETF benchmark DAILY return (DBA) if available (V1.11)
     bench_returns_etf = None
     if get_real_commodity_returns:
-        # We assume the benchmark returns align with our test dates
-        # v1.7: get_real_commodity_returns now returns pre-calculated returns for DBA
-        _, m_bench_rets, _ = get_real_commodity_returns()
-        # Align to test_dates (no pct_change needed here!)
-        bench_returns_etf = m_bench_rets["DBA"].reindex(test_dates).values
+        # v1.9/V1.11: Institutional Valuation Sync
+        test_dates_dt = pd.to_datetime(test_dates)
+        _, _, _, m_bench_daily, _ = get_real_commodity_returns()
+        bench_returns_etf = m_bench_daily["DBA"].reindex(test_dates_dt).ffill().values
     
-    metrics = calculate_metrics(p_conc, t_conc, strat_returns)
+    metrics = calculate_metrics(p_conc, t_conc, strat_daily)
     
     # --- CHRONOLOGICAL SORTING (V1.6) ---
     # Ensure all test-set results are ordered by Date to prevent "spaghetti" plots
     sort_idx = np.argsort(test_dates)
     test_dates = test_dates[sort_idx]
-    strat_returns = strat_returns[sort_idx]
-    bench_returns_ew = bench_returns_ew[sort_idx]
-    bench_returns_w = bench_returns_w[sort_idx]
+    strat_daily = strat_daily[sort_idx]
+    bench_daily_ew = bench_daily_ew[sort_idx]
+    bench_daily_w = bench_daily_w[sort_idx]
     if bench_returns_etf is not None:
         bench_returns_etf = bench_returns_etf[sort_idx]
-    
-    metrics = calculate_metrics(p_conc, t_conc, strat_returns)
     
     # Store results
     result_entry = {**config, **metrics}
@@ -250,7 +276,7 @@ def run_experiment(config):
     else:
         result_entry["Uncertainty_Corr"] = None
         
-    return result_entry, history, p_conc, t_conc, s_conc, strat_returns, bench_returns_ew, bench_returns_w, bench_returns_etf, test_dates
+    return result_entry, history, p_conc, t_conc, s_conc, strat_daily, bench_daily_ew, bench_daily_w, bench_returns_etf, test_dates
 
 def run_standard_suite(fast_dev=False):
     os.makedirs('results', exist_ok=True)
@@ -285,51 +311,71 @@ def run_standard_suite(fast_dev=False):
 
         # If it's the Full model, generate detailed Dashboard and save raw results
         if "Full" in cfg['name']:
-            np.savez('results/ds_tgnn_detailed_results.npz', preds=p, targets=t, stds=s)
+            np.savez('results/ds_tgnn_detailed_results.npz', 
+                     preds=p, targets=t, stds=s, 
+                     strat_returns=strat_r, 
+                     test_dates=dates,
+                     bench_returns_etf=b_etf)
             
             # --- COMPREHENSIVE PERFORMANCE DASHBOARD ---
             fig, axes = plt.subplots(2, 2, figsize=(20, 14))
             
             # 1. Equity Curves (Cumulative Return)
-            # Use nan_to_num to ensure one missing day doesn't 'kill' the whole cumulative series
-            s_cum = np.cumsum(np.nan_to_num(strat_r))
-            b_ew_cum = np.cumsum(np.nan_to_num(b_ew))
-            b_w_cum = np.cumsum(np.nan_to_num(b_w))
+            def to_percentage_return(daily_returns):
+                # Standard Wealth Index -> Percentage Return
+                wealth_index = np.cumprod(1 + np.nan_to_num(daily_returns))
+                return (wealth_index - 1.0) * 100
+
+            axis = axes[0, 0]
+            axis.plot(dates, to_percentage_return(strat_r), label='DS-TGNN Strategy', color='blue', linewidth=2)
+            axis.plot(dates, to_percentage_return(b_ew), label='Market (Equal-Weighted)', color='gray', alpha=0.5, linestyle='--')
+            axis.plot(dates, to_percentage_return(b_w), label='Market (BCOM-Weighted Proxy)', color='red', alpha=0.5, linestyle=':')
+            if b_etf is not None:
+                axis.plot(dates, to_percentage_return(b_etf), label='Real Market (Invesco DBA Fund)', color='orange', linewidth=2)
             
-            axes[0, 0].plot(dates, s_cum, label='DS-TGNN Strategy', color='blue', linewidth=3.0)
-            axes[0, 0].plot(dates, b_ew_cum, label='Market (Equal-Weighted)', color='gray', linestyle='--', alpha=0.6)
-            axes[0, 0].plot(dates, b_w_cum, label='Market (BCOM-Weighted Proxy)', color='red', linestyle=':', alpha=0.8)
+            axis.axhline(y=0, color='black', linestyle='-', alpha=0.3, linewidth=1) # Zero Baseline
+            axis.set_title('Total Cumulative Return (%)', fontsize=12)
+            axis.set_ylabel('Return (%)', fontsize=10)
+            axis.legend(fontsize=9)
+            axis.grid(True, alpha=0.3)
+            
+            # 2. Cumulative Alphas (Percentage Points Spread)
+            axis = axes[0, 1]
+            def to_wealth_only(daily_returns):
+                return np.cumprod(1 + np.nan_to_num(daily_returns))
+
+            s_wealth = to_wealth_only(strat_r)
+            axis.plot(dates, (s_wealth - to_wealth_only(b_ew)) * 100, label='vs. Equal-Weighted', color='gray', alpha=0.3)
+            axis.plot(dates, (s_wealth - to_wealth_only(b_w)) * 100, label='vs. Institutional-Weighted', color='red', alpha=0.3)
             
             if b_etf is not None:
-                b_etf_cum = np.nan_to_num(np.cumsum(np.nan_to_num(b_etf)))
-                axes[0, 0].plot(dates, b_etf_cum, label='Real Market (Invesco DBA Fund)', color='orange', linewidth=2, alpha=0.9)
+                alpha_etf = (s_wealth - to_wealth_only(b_etf)) * 100
+                axis.plot(dates, alpha_etf, label='vs. REAL Real Market (DBA Fund)', color='orange', linewidth=2.5)
+                axis.fill_between(dates, 0, alpha_etf, color='orange', alpha=0.05)
                 
-            axes[0, 0].set_title('Cumulative Returns: Strategy vs. Multiple Benchmarks')
-            axes[0, 0].set_ylabel('Total Return')
-            axes[0, 0].legend()
-            axes[0, 0].grid(True, alpha=0.3)
+            axis.set_title('Strategic Wealth Alpha (%)', fontsize=12)
+            axis.set_ylabel('Alpha (Percentage Points)', fontsize=10)
+            axis.legend()
+            axis.grid(True, alpha=0.3)
             
-            # 2. Cumulative Alphas (Excess Return vs Benchmarks)
-            axes[0, 1].plot(dates, s_cum - b_ew_cum, label='vs. Equal-Weighted', color='gray', alpha=0.4)
-            axes[0, 1].plot(dates, s_cum - b_w_cum, label='vs. Institutional-Weighted', color='red', alpha=0.6)
+            # 3. Standardized Asset-Wise Accuracy Score (Predictive Edge)
+            # Normalizing RMSE by the Historical Volatility (Std Dev) of each asset
+            # This makes the accuracy comparable across high-vol (NatGas) and low-vol (Soybeans) assets.
             
-            if b_etf is not None:
-                axes[0, 1].plot(dates, s_cum - b_etf_cum, label='vs. REAL Real Market (DBA Fund)', color='orange', linewidth=2.5)
-                axes[0, 1].fill_between(dates, s_cum - b_etf_cum, 0, color='orange', alpha=0.1)
-                
-            axes[0, 1].set_title('Cumulative Strategy Alpha (Relative to Benchmarks)')
-            axes[0, 1].set_ylabel('Alpha')
-            axes[0, 1].legend()
-            axes[0, 1].grid(True, alpha=0.3)
-            
-            # 3. Asset-Wise Prediction Accuracy (Accuracy Score: 1 - RMSE normalized?)
-            # To fix intuition: plot 1 / RMSE so higher is better
+            # targets 't' has shape [Batch, N]
+            asset_volatility = np.std(t, axis=0) # Natural volatility of each asset
             asset_rmse = np.array(res['per_asset_rmse'])
-            accuracy_score = 1.0 / (asset_rmse + 1e-6)
-            axes[1, 0].bar(commodity_names, accuracy_score, color='teal', alpha=0.7)
-            axes[1, 0].set_title('Normalized Asset-Wise Accuracy Score (1/RMSE)')
-            axes[1, 0].set_ylabel('Accuracy Index (Higher is Better)')
+            
+            # Predictive Edge = Volatility / RMSE 
+            # > 1.0 means the model is better than a 'zero-knowledge' volatility baseline
+            predictive_edge = asset_volatility / (asset_rmse + 1e-6)
+            
+            axes[1, 0].bar(commodity_names, predictive_edge, color='teal', alpha=0.7)
+            axes[1, 0].axhline(y=1.0, color='red', linestyle='--', alpha=0.5, label='Baseline')
+            axes[1, 0].set_title('Standardized Predictive Edge (Volatility / RMSE)')
+            axes[1, 0].set_ylabel('Edge Index (>1.0 is Good)')
             axes[1, 0].tick_params(axis='x', rotation=45)
+            axes[1, 0].legend()
             
             # 4. Error Distribution (Residuals)
             residuals = (p - t).ravel()
@@ -387,9 +433,14 @@ def run_standard_suite(fast_dev=False):
     print("="*50)
 
 if __name__ == "__main__":
+    # 1. Force absolute reproducibility
+    set_seed(42)
+    
+    # Check for fast dev run
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--fast_dev_run', action='store_true')
     args = parser.parse_args()
     
+    # The suite itself handles the epoch logic based on fast_dev_run
     run_standard_suite(fast_dev=args.fast_dev_run)
