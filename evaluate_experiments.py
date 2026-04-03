@@ -142,15 +142,16 @@ def run_standard_suite(fast_dev=False, walk_forward=False):
     c_names = ["Corn", "Soybeans", "Wheat", "Cattle", "Hogs", "Ethanol", "NatGas", "Cotton"]
     prefix = "v2_" if walk_forward else ""
     configs = [
-        # {"name": "Base_A_LSTM", "use_diffusion": False, "use_gnn": False, "use_lstm": True, "epochs": epochs, "walk_forward": walk_forward},
-        # {"name": "DS-TGNN_V2.1.1_Triple", "use_diffusion": True, "use_gnn": True, "use_lstm": True, "include_denoised": True, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
+        {"name": "Base_A_LSTM", "use_diffusion": False, "use_gnn": False, "use_lstm": True, "epochs": epochs, "walk_forward": walk_forward},
+        {"name": "DS-TGNN_V2.1.1_Triple", "use_diffusion": True, "use_gnn": True, "use_lstm": True, "include_denoised": True, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
         {"name": "DS-TGNN_V2.1.2_Score", "use_diffusion": True, "use_gnn": True, "use_lstm": True, "include_denoised": False, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
     ]
     sum_data = []; d_name = f"{prefix}alpha_dashboard.png"
     for cfg in configs:
-        res, hist, p, t, s, s_r, b_ew, b_etf, dates, m_list = run_experiment(cfg); sum_data.append(res)
+        res, hist, p, t, s, s_r, b_ew, b_etf, dates, m_list = run_experiment(cfg)
+        sum_data.append(res)
+        np.savez(f"results/{prefix}{cfg['name']}_results.npz", preds=p, targets=t, stds=s, strat_returns=s_r, dates=dates)
         if "V2" in cfg['name']:
-            np.savez(f"results/{prefix}{cfg['name']}_results.npz", preds=p, targets=t, stds=s, strat_returns=s_r, dates=dates)
             fig, axarr = plt.subplots(2, 2, figsize=(20, 14))
             ax = axarr[0, 0]
             def to_pct(r): return (np.cumprod(1 + np.nan_to_num(r)) - 1.0) * 100
