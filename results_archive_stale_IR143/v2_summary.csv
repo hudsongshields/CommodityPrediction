@@ -1,0 +1,3 @@
+name,use_diffusion,use_gnn,use_lstm,epochs,walk_forward,Excess_RMSE,Excess_IR,per_asset_rmse,Uncertainty_Corr,mc_samples
+Base_A_LSTM,False,False,True,50,True,0.1960163563489914,-0.040401187528022804,"[np.float32(0.16666488), np.float32(0.104141206), np.float32(0.12081084), np.float32(0.046505466), np.float32(0.13419367), np.float32(0.16346262), np.float32(0.40941083), np.float32(0.1991318)]",,
+DS-TGNN_V2_Alpha,True,True,True,50,True,0.19211113452911377,0.10582071484958451,"[np.float32(0.120322786), np.float32(0.094795726), np.float32(0.11280367), np.float32(0.055216078), np.float32(0.17642799), np.float32(0.120801836), np.float32(0.41657227), np.float32(0.19173896)]",0.4167424521821623,50.0
