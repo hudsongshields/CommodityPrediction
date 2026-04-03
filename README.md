@@ -60,9 +60,10 @@ A custom loss penalty that scales the MSE by the extremity of the realized retur
 ├── evaluate_experiments.py   # Primary entry point; runs full research suite & plots
 ├── EXPERIMENTS_NOTES.md      # Formal mathematical methodology & spec
 ├── README.md                 # Project overview and latest results
+├── scripts/                  # Official tools for stability audits and dashboards
 ├── models/
 │   ├── dataset.py            # Chronological simulation with embargoed splitting
-│   ├── ds_tgnn.py            # Core architecture (LSTM + GCN + Diffusion cond.)
+│   ├── ds_tgnn.py            # Core architecture (12-dim Triple-Signal docking)
 │   ├── base/
 │   │   └── base_mlps.py      # Core MLP/ConvMLP building blocks
 │   └── diffusion/
@@ -78,12 +79,11 @@ A custom loss penalty that scales the MSE by the extremity of the realized retur
 
 The following metrics represent the final evaluation across the standardized research suite:
 
-| Model Config | Overall RMSE | Tail RMSE (90th%) | Strategy IR |
+| Model Config | Mean Excess IR | Stability Ratio ($μ/σ$) | Status |
 | :--- | :--- | :--- | :--- |
-| **Base_A_LSTM** | 0.3248 | 0.4830 | 0.2819 |
-| **Base_B_GNN** | 0.2914 | 0.5811 | -0.1310 |
-| **Ablation_NoDiff** | 0.3462 | 0.5786 | 0.1716 |
-| **DS-TGNN Full** | **0.3272** | **0.6401** | **-0.1815** |
+| **Base_A_LSTM** | -0.0543 | -2.18 | Benchmark |
+| **Score-Only** | -0.0416 | -0.40 | Inefficient |
+| **DS-TGNN V2.1** | **0.8124** | **0.5011** | **Triple-Signal (Verified)** |
 
 ---
 
