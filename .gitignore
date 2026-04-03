@@ -1,3 +1,4 @@
 /models/diffusion/testing/data/FashionMNIST
 /models/diffusion/__pycache__/
 /models/diffusion/testing/
+*.csv
