@@ -87,7 +87,8 @@ def run_experiment(config):
         
         N, T, F = 14, 180, 4; d_in = N * T * F
         den = Diffusion(input_dim=d_in, mlp_hidden=[128], conv_hidden=32, t_hidden_dim=16, output_dim=d_in, use_conv=False)
-        model = DiffusionReturnPrediction(den, input_dim=F, lstm_hidden=32, gnn_hidden=32, n_hubs=N).to(device)
+        inc_den = config.get('include_denoised', False)
+        model = DiffusionReturnPrediction(den, input_dim=F, lstm_hidden=32, gnn_hidden=32, n_hubs=N, include_denoised=inc_den).to(device)
         opt = torch.optim.Adam(model.parameters(), lr=lr)
 
         for epoch in range(epochs):
@@ -137,19 +138,19 @@ def run_experiment(config):
 
 def run_standard_suite(fast_dev=False, walk_forward=False):
     os.makedirs('results', exist_ok=True); os.makedirs('plots', exist_ok=True)
-    epochs = 2 if fast_dev else 25 # Research Spec
+    epochs = 2 if fast_dev else 50 # Final Score-Only Research Spec (V2.1.2)
     c_names = ["Corn", "Soybeans", "Wheat", "Cattle", "Hogs", "Ethanol", "NatGas", "Cotton"]
     prefix = "v2_" if walk_forward else ""
-    m_name = "DS-TGNN_V2_Alpha" if walk_forward else "DS-TGNN_V2_Baseline"
     configs = [
-        {"name": "Base_A_LSTM", "use_diffusion": False, "use_gnn": False, "use_lstm": True, "epochs": epochs, "walk_forward": walk_forward},
-        {"name": m_name, "use_diffusion": True, "use_gnn": True, "use_lstm": True, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
+        # {"name": "Base_A_LSTM", "use_diffusion": False, "use_gnn": False, "use_lstm": True, "epochs": epochs, "walk_forward": walk_forward},
+        # {"name": "DS-TGNN_V2.1.1_Triple", "use_diffusion": True, "use_gnn": True, "use_lstm": True, "include_denoised": True, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
+        {"name": "DS-TGNN_V2.1.2_Score", "use_diffusion": True, "use_gnn": True, "use_lstm": True, "include_denoised": False, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
     ]
     sum_data = []; d_name = f"{prefix}alpha_dashboard.png"
     for cfg in configs:
         res, hist, p, t, s, s_r, b_ew, b_etf, dates, m_list = run_experiment(cfg); sum_data.append(res)
         if "V2" in cfg['name']:
-            np.savez(f'results/{prefix}results.npz', preds=p, targets=t, stds=s, strat_returns=s_r, dates=dates)
+            np.savez(f"results/{prefix}{cfg['name']}_results.npz", preds=p, targets=t, stds=s, strat_returns=s_r, dates=dates)
             fig, axarr = plt.subplots(2, 2, figsize=(20, 14))
             ax = axarr[0, 0]
             def to_pct(r): return (np.cumprod(1 + np.nan_to_num(r)) - 1.0) * 100
@@ -157,7 +158,7 @@ def run_standard_suite(fast_dev=False, walk_forward=False):
             ax.plot(dates, to_pct(b_ew), label='Market EW', color='gray', alpha=0.5, ls='--')
             if walk_forward:
                 for m in m_list: ax.axvline(m, color='green', alpha=0.3, ls=':', lw=1)
-            ax.axhline(0, color='black', alpha=0.3); ax.set_title(f"Cumulative Excess Return ({m_name})"); ax.legend(); ax.grid(True, alpha=0.3)
+            ax.axhline(0, color='black', alpha=0.3); ax.set_title(f"Cumulative Excess Return ({cfg['name']})"); ax.legend(); ax.grid(True, alpha=0.3)
             ax = axarr[0, 1]; sw, mw = np.cumprod(1 + np.nan_to_num(s_r)), np.cumprod(1 + np.nan_to_num(b_ew))
             ax.plot(dates, (sw - mw) * 100, label='Pure Alpha vs Bench', color='blue', lw=2.5)
             ax.fill_between(dates, 0, (sw - mw)*100, color='blue', alpha=0.08)
