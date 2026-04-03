@@ -15,13 +15,12 @@ class DiffusionReturnPrediction(nn.Module):
         self.n_hubs = n_hubs
         self.n_out = n_out
         
-        # Triple-Input Pathway (Combined_Dim = 3 * F = 12)
+        # Dual-Input Pathway (Combined_Dim = 2 * F = 8)
         # 1. Raw Weather (4)
-        # 2. Denoised Weather (4)
-        # 3. Manifold Score (4)
-        self.combined_in_dim = input_dim * 3
+        # 2. Manifold Score (4) [Gradient of log-density]
+        self.combined_in_dim = input_dim * 2
         
-        # Temporal Component (Recalibrated for 12-dim input)
+        # Temporal Component (Recalibrated for 8-dim input)
         self.lstm = nn.LSTM(input_size=self.combined_in_dim, hidden_size=lstm_hidden, batch_first=True)
         
         # Spatial Component
@@ -70,25 +69,21 @@ class DiffusionReturnPrediction(nn.Module):
         if self.use_diffusion:
             # 1. State Estimation
             x_flat = x.reshape(B, -1)
-            sigma_low = 0.1
+            sigma_low = 0.1 # High-fidelity signal resolution
             t_const = torch.full((B, 1), sigma_low, device=x.device)
-            z_pred_flat = self.denoiser(x_flat, t_const)
             
-            # 2. Reshape Denoising Signal
-            z_pred = z_pred_flat.reshape(B, N, T, F)
+            # 2. Score Signal Generation: Gradient of log-density P(x)
+            # The denoiser is trained to output the score s_theta(x, sigma) directly.
+            scores_flat = self.denoiser(x_flat, t_const)
+            scores = scores_flat.reshape(B, N, T, F)
             
-            # 3. Component Generation
-            # x_clean: The underlying "Normal" weather manifold projection
-            # scores: The "Off-Manifold" surprise gradient (Residual)
-            scores = z_pred * sigma_low
-            x_clean = x - scores
-            
-            # 4. Triple-Signal Concatenation: [B, N, T, 12 features]
-            x_combined = torch.cat([x, x_clean, scores], dim=-1)
+            # 3. Dual-Signal Concatenation: [B, N, T, 8 features]
+            # Primary Signal: Raw observations
+            # Secondary Signal: Manifold gradients (Anomaly indicators)
+            x_combined = torch.cat([x, scores], dim=-1)
         else:
             # Baseline compatibility: Zero-padded pseudo-signals
-            zero_signal = torch.zeros_like(x)
-            x_combined = torch.cat([x, zero_signal, zero_signal], dim=-1)
+            x_combined = torch.cat([x, torch.zeros_like(x)], dim=-1)
 
         # Spatiotemporal Information Processing
         features = self.extract_features(x_combined, edge_index)
