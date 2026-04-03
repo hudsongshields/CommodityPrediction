@@ -150,6 +150,12 @@ def run_standard_suite(fast_dev=False, walk_forward=False):
     for cfg in configs:
         res, hist, p, t, s, s_r, b_ew, b_etf, dates, m_list = run_experiment(cfg)
         sum_data.append(res)
+        
+        # Save the Model State Dict (Learned Weights)
+        m_path = f"results/{prefix}{cfg['name']}_weights.pt"
+        torch.save(model.state_dict(), m_path)
+        print(f"✅ Model weights persisted to {m_path}")
+
         np.savez(f"results/{prefix}{cfg['name']}_results.npz", preds=p, targets=t, stds=s, strat_returns=s_r, dates=dates)
         if "V2" in cfg['name']:
             fig, axarr = plt.subplots(2, 2, figsize=(20, 14))
