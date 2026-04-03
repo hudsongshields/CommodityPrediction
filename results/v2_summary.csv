@@ -1,3 +1,2 @@
-name,use_diffusion,use_gnn,use_lstm,epochs,walk_forward,Excess_RMSE,Excess_IR,per_asset_rmse,Uncertainty_Corr,mc_samples
-Base_A_LSTM,False,False,True,25,True,0.1633795201778412,-0.01645579061795573,"[np.float32(0.14923367), np.float32(0.10242511), np.float32(0.13194756), np.float32(0.050293796), np.float32(0.18102117), np.float32(0.1501757), np.float32(0.29134288), np.float32(0.14366502)]",,
-DS-TGNN_V2_Alpha,True,True,True,25,True,0.18462476134300232,0.029688212220772173,"[np.float32(0.13088197), np.float32(0.09302688), np.float32(0.1252625), np.float32(0.058809567), np.float32(0.12548663), np.float32(0.13165493), np.float32(0.41173068), np.float32(0.15860328)]",0.3794753705347989,50.0
+name,use_diffusion,use_gnn,use_lstm,include_denoised,mc_samples,epochs,walk_forward,Excess_RMSE,Excess_IR,per_asset_rmse,Uncertainty_Corr
+DS-TGNN_V2.1.2_Score,True,True,True,False,50,50,True,0.1549014151096344,0.11916230790403119,"[np.float32(0.09843744), np.float32(0.08551316), np.float32(0.090984456), np.float32(0.04766463), np.float32(0.16076528), np.float32(0.097862236), np.float32(0.31933466), np.float32(0.16433494)]",0.3617113567294518

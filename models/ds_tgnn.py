@@ -3,24 +3,22 @@ import torch.nn as nn
 from torch_geometric.nn import GCNConv
 
 class DiffusionReturnPrediction(nn.Module):
-    def __init__(self, denoiser, input_dim, lstm_hidden, gnn_hidden, n_hubs=14, n_out=8, use_diffusion=True):
+    def __init__(self, denoiser, input_dim, lstm_hidden, gnn_hidden, n_hubs=14, n_out=8, use_diffusion=True, include_denoised=False):
         """
-        V2.1.1 Triple-Signal Score-Conditioned Upgrade.
-        Architecture: Triple-Input Encoder [Raw, Clean, Score].
-        Target: Excess Return (Alpha) over the DBA benchmark.
+        V2.2 Comparison-Aligned DS-TGNN.
+        Supports 8-dim (Raw+Score) and 12-dim (Raw+Clean+Score) docking.
         """
         super().__init__()
         self.denoiser = denoiser 
         self.use_diffusion = use_diffusion
         self.n_hubs = n_hubs
         self.n_out = n_out
+        self.include_denoised = include_denoised
         
-        # Dual-Input Pathway (Combined_Dim = 2 * F = 8)
-        # 1. Raw Weather (4)
-        # 2. Manifold Score (4) [Gradient of log-density]
-        self.combined_in_dim = input_dim * 2
+        # Combined Input Dimension: [Raw(4) + Score(4) + Optional Denoised(4)]
+        self.combined_in_dim = input_dim * (3 if include_denoised else 2)
         
-        # Temporal Component (Recalibrated for 8-dim input)
+        # Temporal Component (Recalibrated for dynamic input dimension)
         self.lstm = nn.LSTM(input_size=self.combined_in_dim, hidden_size=lstm_hidden, batch_first=True)
         
         # Spatial Component
@@ -77,10 +75,15 @@ class DiffusionReturnPrediction(nn.Module):
             scores_flat = self.denoiser(x_flat, t_const)
             scores = scores_flat.reshape(B, N, T, F)
             
-            # 3. Dual-Signal Concatenation: [B, N, T, 8 features]
-            # Primary Signal: Raw observations
-            # Secondary Signal: Manifold gradients (Anomaly indicators)
-            x_combined = torch.cat([x, scores], dim=-1)
+            # 3. Input Signal Docking: [B, N, T, combined_dim]
+            if self.include_denoised:
+                # V2.1.1 Compatibility: Include Tweedie-style denoised projection
+                # x_denoised = x + sigma^2 * score
+                denoised = x + (sigma_low**2) * scores
+                x_combined = torch.cat([x, denoised, scores], dim=-1)
+            else:
+                # V2.1.2 Production: Score-Only path (Most efficient)
+                x_combined = torch.cat([x, scores], dim=-1)
         else:
             # Baseline compatibility: Zero-padded pseudo-signals
             x_combined = torch.cat([x, torch.zeros_like(x)], dim=-1)
