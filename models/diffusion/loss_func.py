@@ -29,9 +29,9 @@ class ScoreDiffusionLoss(nn.Module):
         # Denoiser returns flattened score [B, N*T*F]
         predicted_flat = denoiser(x_t, sigma_t)
         
-        # 4. Symmetric comparison (Flatten both for loss computation)
+        # 4. Theory-Aligned Score Matching (V2.1.2)
+        # Loss = || sigma * s_theta(x_t, sigma) + z ||^2
         z_flat = z.reshape(B, -1)
-        
-        # Consistent shape matching to prevent broadcasting errors
-        loss = torch.mean((predicted_flat - z_flat) ** 2)
+        sigma_t_flat = sigma_t.view(B, 1)
+        loss = torch.mean((sigma_t_flat * predicted_flat + z_flat) ** 2)
         return loss
