@@ -2,7 +2,13 @@ import torch
 from torch.utils.data import Dataset, DataLoader, Subset
 import pandas as pd
 import numpy as np
-from .market_data import get_real_commodity_returns
+try:
+    from .market_data import get_real_commodity_returns
+except (ImportError, ValueError):
+    from models.market_data import get_real_commodity_returns
+except Exception:
+    import market_data
+    get_real_commodity_returns = market_data.get_real_commodity_returns
 
 class CommodityWeatherDataset(Dataset):
     def __init__(self, target_horizon=30):
@@ -28,9 +34,8 @@ class CommodityWeatherDataset(Dataset):
         
         # V2.3 Hardened: Validated Selection of 14 High-Impact Hubs
         core_hubs = [
-            'Des Moines', 'Omaha', 'Wichita', 'Amarillo', 'Houston', 
-            'Pittsburgh', 'Lubbock', 'Chicago', 'Beijing', 'Dubai', 
-            'Moscow', 'Singapore', 'Rostov-on-Don', 'Rosario'
+            'Beijing', 'Chicago', 'Cuiaba', 'Dubai', 'Moscow', 
+            'Paris', 'Pittsburgh', 'Rostov-on-Don', 'Singapore'
         ]
         weather_df = weather_df[weather_df['city'].isin(core_hubs)]
         
@@ -41,10 +46,13 @@ class CommodityWeatherDataset(Dataset):
         
         # Synchronize Time & Ensure Matrix Integrity
         common_dates = pivoted.index.intersection(m_dates)
-        weather_sync = pivoted.loc[common_dates].values # [T, 14*4]
+        weather_sync = pivoted.loc[common_dates].values # [T, N_hubs*4]
         
-        # Final Tensor: [T, 14, 4]
-        self.global_timeline = torch.tensor(weather_sync, dtype=torch.float32).view(-1, 14, 4)
+        # Determine actual verified hub count
+        self.n_hubs = pivoted.shape[1] // 4
+        
+        # Final Tensor: [T, N_hubs, 4]
+        self.global_timeline = torch.tensor(weather_sync, dtype=torch.float32).view(-1, self.n_hubs, 4)
         
         # Re-align alpha targets
         mask = m_dates.isin(common_dates)

@@ -23,11 +23,11 @@ sys.path.append(os.path.join(os.getcwd(), 'models'))
 sys.path.append(os.path.join(os.getcwd(), 'models', 'diffusion'))
 sys.path.append(os.path.join(os.getcwd(), 'models', 'base'))
 
-from dataset import get_dataloaders, get_walk_forward_dataloaders
-from market_data import get_real_commodity_returns
-from ds_tgnn import DiffusionReturnPrediction
-from diffusion.diffusion_architecture import ScoreNetwork
-from diffusion.loss_func import ScoreDiffusionLoss
+from models.dataset import get_dataloaders, get_walk_forward_dataloaders
+from models.market_data import get_real_commodity_returns
+from models.ds_tgnn import DiffusionReturnPrediction
+from models.diffusion.diffusion_architecture import ScoreNetwork
+from models.diffusion.loss_func import ScoreDiffusionLoss
 
 def set_seed(seed=42):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
@@ -58,19 +58,6 @@ def run_experiment(config):
     epochs = config.get('epochs', 5); lr = config.get('lr', 0.001); batch_size = config.get('batch_size', 16)
     mc_samples = config.get('mc_samples', 1); mag_weighted = config.get('mag_weighted', True)
     walk_forward = config.get('walk_forward', False); device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # Final 14-Hub Global Supply Network
-    # US (0-7), SA (8-10), EUR (11-13)
-    edges = []
-    us_i, sa_i, eur_i = [0,1,2,3,4,5,6,7], [8,9,10], [11,12,13]
-    for zone in [us_i, sa_i, eur_i]:
-        for i in zone:
-            for j in zone:
-                if i < j: edges.append([i, j])
-    edges.extend([[7, 11], [0, 8], [5, 11]]) # Global Connectivity
-    e_idx = torch.tensor(edges, dtype=torch.long).t().contiguous().to(device)
-    e_idx = torch.cat([e_idx, e_idx.flip(0)], dim=1)
-
     if walk_forward:
         folds = get_walk_forward_dataloaders(batch_size=batch_size)
     else:
@@ -85,7 +72,19 @@ def run_experiment(config):
         f_idx = fold_data['fold']; print(f"  --- Processing Fold {f_idx}/{len(folds)} ---")
         train_l, val_l, test_l = fold_data['train'], fold_data['val'], fold_data['test']
         
-        N, T, F = 14, 180, 4; d_in = N * T * F
+        # Dynamic Node Configuration: Align model with verified Meteorological Hubs
+        N, T, F = train_l.dataset.dataset.n_hubs, 180, 4
+        d_in = N * T * F
+        
+        # Build regional clustering based on actual available nodes
+        edges = []
+        for i in range(N):
+            for j in range(i + 1, N):
+                edges.append([i, j]) # Fully connected spatial prior
+        e_idx = torch.tensor(edges, dtype=torch.long).t().contiguous().to(device)
+        if e_idx.numel() > 0: e_idx = torch.cat([e_idx, e_idx.flip(0)], dim=1)
+        else: e_idx = torch.zeros((2, 0), dtype=torch.long).to(device)
+
         score_net = ScoreNetwork(input_dim=d_in, mlp_hidden=[128], conv_hidden=32, t_hidden_dim=16, output_dim=d_in, use_conv=False)
         inc_den = config.get('include_denoised', False)
         model = DiffusionReturnPrediction(score_net, input_dim=F, lstm_hidden=32, gnn_hidden=32, n_hubs=N, include_denoised=inc_den).to(device)
@@ -97,20 +96,11 @@ def run_experiment(config):
                 x, y = x.to(device), y.to(device); opt.zero_grad()
                 
                 # V2.3 Hardened: Simultaneous Gradient Synchronization
-                # We calculate the Score-Matching Loss (Fisher Divergence) and 
-                # the Return-Prediction Loss (Weighted MSE) in the same pass.
-                
-                # 1. Score-Matching Objective: Approximating the local weather density
                 score_l = score_loss_fn(model.score_net, x.transpose(1, 2)) 
-                
-                # 2. Predictive Objective: Mapping Triple-Signal features to Target Returns
                 p = model(x, e_idx)
                 reg_l = (p - y)**2
                 if mag_weighted: reg_l = reg_l * (1.0 + torch.abs(y) * 10.0)
                 
-                # 3. Synchronized Optimization: Preventing Objective Override
-                # By combining these into a single scalar and calling backward() once,
-                # the ScoreNetwork weights receive a unified gradient signal.
                 total_l = reg_l.mean() + gamma * score_l
                 total_l.backward()
                 opt.step()
@@ -148,6 +138,12 @@ def run_experiment(config):
     res = {**config, **calculate_metrics(p_c, t_c, strat_r)}
     if mc_samples > 1: res["Uncertainty_Corr"] = float(np.corrcoef(np.abs(p_c - t_c).ravel(), s_c.ravel())[0, 1])
     else: res["Uncertainty_Corr"] = None
+    # Persist Final Model State
+    os.makedirs('results', exist_ok=True)
+    m_path = f"results/{config['name']}_weights.pt"
+    torch.save(model.state_dict(), m_path)
+    print(f"✅ Model weights persisted to {m_path}")
+
     return res, history, p_c, t_c, s_c, strat_r, b_ew, b_etf, dates, fold_markers
 
 def run_standard_suite(fast_dev=False, walk_forward=False):
@@ -165,11 +161,6 @@ def run_standard_suite(fast_dev=False, walk_forward=False):
         res, hist, p, t, s, s_r, b_ew, b_etf, dates, m_list = run_experiment(cfg)
         sum_data.append(res)
         
-        # Save the Model State Dict (Learned Weights)
-        m_path = f"results/{prefix}{cfg['name']}_weights.pt"
-        torch.save(model.state_dict(), m_path)
-        print(f"✅ Model weights persisted to {m_path}")
-
         np.savez(f"results/{prefix}{cfg['name']}_results.npz", preds=p, targets=t, stds=s, strat_returns=s_r, dates=dates)
         if "V2" in cfg['name']:
             fig, axarr = plt.subplots(2, 2, figsize=(20, 14))
@@ -190,7 +181,7 @@ def run_standard_suite(fast_dev=False, walk_forward=False):
             sns.histplot((p - t).ravel(), bins=50, kde=True, ax=axarr[1, 1], color='purple')
             axarr[1, 1].set_title('Excess Error Distribution'); plt.tight_layout(); plt.savefig(f"plots/{d_name}")
     df = pd.DataFrame(sum_data); df.to_csv(f'results/{prefix}summary.csv', index=False)
-    print(f"\n" + "="*50 + f"\n      V2.1 RESEARCH SUMMARY (N=14 Hubs)\n" + "="*50)
+    print(f"\n" + "="*50 + f"\n      V2.3 RESEARCH SUMMARY (N=9 Hubs)\n" + "="*50)
     print(df[['name', 'Excess_RMSE', 'Excess_IR', 'Uncertainty_Corr']].to_string(index=False))
 
 if __name__ == "__main__":
