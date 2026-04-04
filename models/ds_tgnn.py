@@ -3,13 +3,13 @@ import torch.nn as nn
 from torch_geometric.nn import GCNConv
 
 class DiffusionReturnPrediction(nn.Module):
-    def __init__(self, denoiser, input_dim, lstm_hidden, gnn_hidden, n_hubs=14, n_out=8, use_diffusion=True, include_denoised=False):
+    def __init__(self, score_net, input_dim, lstm_hidden, gnn_hidden, n_hubs=14, n_out=8, use_diffusion=True, include_denoised=False):
         """
-        V2.2 Comparison-Aligned DS-TGNN.
+        V2.3 Score-Hardened DS-TGNN.
         Supports 8-dim (Raw+Score) and 12-dim (Raw+Clean+Score) docking.
         """
         super().__init__()
-        self.denoiser = denoiser 
+        self.score_net = score_net 
         self.use_diffusion = use_diffusion
         self.n_hubs = n_hubs
         self.n_out = n_out
@@ -70,19 +70,19 @@ class DiffusionReturnPrediction(nn.Module):
             sigma_low = 0.1 # High-fidelity signal resolution
             t_const = torch.full((B, 1), sigma_low, device=x.device)
             
-            # 2. Score Signal Generation: Gradient of log-density P(x)
-            # The denoiser is trained to output the score s_theta(x, sigma) directly.
-            scores_flat = self.denoiser(x_flat, t_const)
+            # 2. Score Signal Generation: Gradient of log-density \nabla_x log p(x)
+            # The ScoreNetwork is trained to output the score s_theta(x, sigma) directly.
+            scores_flat = self.score_net(x_flat, t_const)
             scores = scores_flat.reshape(B, N, T, F)
             
             # 3. Input Signal Docking: [B, N, T, combined_dim]
             if self.include_denoised:
-                # V2.1.1 Compatibility: Include Tweedie-style denoised projection
-                # x_denoised = x + sigma^2 * score
+                # V2.3 Hardened: Include Tweedie-style denoised projection (Empirical Bayes)
+                # Formula: \hat{x}_0 = x + sigma^2 * \nabla log p(x)
                 denoised = x + (sigma_low**2) * scores
                 x_combined = torch.cat([x, denoised, scores], dim=-1)
             else:
-                # V2.1.2 Production: Score-Only path (Most efficient)
+                # V2.3 Score-Only path (Direct Score Features)
                 x_combined = torch.cat([x, scores], dim=-1)
         else:
             # Baseline compatibility: Zero-padded pseudo-signals

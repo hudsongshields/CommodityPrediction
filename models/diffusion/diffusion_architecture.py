@@ -8,8 +8,8 @@ from base_mlps import MLP, ConvolutionalMLP
 
         
     
-# Takes in a noisy input and predicts the score to remove the noise
-class Diffusion(nn.Module):
+# Takes in a noisy input and predicts the score (gradient of log-density) to extract structural features
+class ScoreNetwork(nn.Module):
     def __init__(self, input_dim, mlp_hidden, conv_hidden, t_hidden_dim, output_dim, use_conv=False):
         super().__init__()
         self.time_embed = nn.Sequential(
@@ -30,6 +30,9 @@ class Diffusion(nn.Module):
             self.score_regression = MLP(input_dim, mlp_hidden, output_dim)
     
     def forward(self, x, t: torch.Tensor):
+        """
+        Predicts the score s_theta(x, sigma) approximating grad log p(x).
+        """
         t = t.view(-1, 1)
         t_embed = self.time_embed(t)
             

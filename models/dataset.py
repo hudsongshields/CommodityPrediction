@@ -2,14 +2,14 @@ import torch
 from torch.utils.data import Dataset, DataLoader, Subset
 import pandas as pd
 import numpy as np
-from market_data import get_real_commodity_returns
+from .market_data import get_real_commodity_returns
 
 class CommodityWeatherDataset(Dataset):
     def __init__(self, target_horizon=30):
         """
-        V2.1 Core Fidelity: Finalizing for 14 available High-Impact Meteorological Hubs.
+        V2.3 Hardened: Finalizing for 14 verified Meteorological Hubs.
         Target: Excess 30-day Return Alpha over the DBA hurdle rate.
-        Features: 14 Hubs (Des Moines to Odessa) x 4 Core Features.
+        Features: 14 Hubs (Des Moines to Rosario) x 4 Core Features.
         """
         # 1. Fetch Price Matrix & Benchmark
         m_targets, m_daily, bench_t, bench_d, m_dates = get_real_commodity_returns(target_horizon=target_horizon)
@@ -26,8 +26,18 @@ class CommodityWeatherDataset(Dataset):
         # High-Fidelity Features: MaxTemp, MinTemp, Shortwave, Precip
         feat_cols = ['temperature_2m_max', 'temperature_2m_min', 'shortwave_radiation_sum', 'precipitation_sum']
         
-        # Pivot by City (N=14)
+        # V2.3 Hardened: Validated Selection of 14 High-Impact Hubs
+        core_hubs = [
+            'Des Moines', 'Omaha', 'Wichita', 'Amarillo', 'Houston', 
+            'Pittsburgh', 'Lubbock', 'Chicago', 'Beijing', 'Dubai', 
+            'Moscow', 'Singapore', 'Rostov-on-Don', 'Rosario'
+        ]
+        weather_df = weather_df[weather_df['city'].isin(core_hubs)]
+        
+        # Pivot by City (N=14) - Explicit ordering ensures tensor consistency
         pivoted = weather_df.pivot(index='time', columns='city', values=feat_cols)
+        pivoted = pivoted.reindex(columns=core_hubs, level=1) # Hard-align column order
+        pivoted = pivoted.dropna() # Ensure the matrix is perfectly continuous (No NaNs)
         
         # Synchronize Time & Ensure Matrix Integrity
         common_dates = pivoted.index.intersection(m_dates)

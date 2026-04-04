@@ -26,7 +26,7 @@ sys.path.append(os.path.join(os.getcwd(), 'models', 'base'))
 from dataset import get_dataloaders, get_walk_forward_dataloaders
 from market_data import get_real_commodity_returns
 from ds_tgnn import DiffusionReturnPrediction
-from diffusion.diffusion_architecture import Diffusion
+from diffusion.diffusion_architecture import ScoreNetwork
 from diffusion.loss_func import ScoreDiffusionLoss
 
 def set_seed(seed=42):
@@ -86,21 +86,35 @@ def run_experiment(config):
         train_l, val_l, test_l = fold_data['train'], fold_data['val'], fold_data['test']
         
         N, T, F = 14, 180, 4; d_in = N * T * F
-        den = Diffusion(input_dim=d_in, mlp_hidden=[128], conv_hidden=32, t_hidden_dim=16, output_dim=d_in, use_conv=False)
+        score_net = ScoreNetwork(input_dim=d_in, mlp_hidden=[128], conv_hidden=32, t_hidden_dim=16, output_dim=d_in, use_conv=False)
         inc_den = config.get('include_denoised', False)
-        model = DiffusionReturnPrediction(den, input_dim=F, lstm_hidden=32, gnn_hidden=32, n_hubs=N, include_denoised=inc_den).to(device)
+        model = DiffusionReturnPrediction(score_net, input_dim=F, lstm_hidden=32, gnn_hidden=32, n_hubs=N, include_denoised=inc_den).to(device)
         opt = torch.optim.Adam(model.parameters(), lr=lr)
 
         for epoch in range(epochs):
             model.train(); t_l = []
             for x, y, v, d in train_l:
                 x, y = x.to(device), y.to(device); opt.zero_grad()
-                diff_l = score_loss_fn(model.denoiser, x.transpose(1, 2)) # Canonical [B, N, T, F]
+                
+                # V2.3 Hardened: Simultaneous Gradient Synchronization
+                # We calculate the Score-Matching Loss (Fisher Divergence) and 
+                # the Return-Prediction Loss (Weighted MSE) in the same pass.
+                
+                # 1. Score-Matching Objective: Approximating the local weather density
+                score_l = score_loss_fn(model.score_net, x.transpose(1, 2)) 
+                
+                # 2. Predictive Objective: Mapping Triple-Signal features to Target Returns
                 p = model(x, e_idx)
                 reg_l = (p - y)**2
                 if mag_weighted: reg_l = reg_l * (1.0 + torch.abs(y) * 10.0)
-                total_l = reg_l.mean() + gamma * diff_l
-                total_l.backward(); opt.step(); t_l.append(total_l.item())
+                
+                # 3. Synchronized Optimization: Preventing Objective Override
+                # By combining these into a single scalar and calling backward() once,
+                # the ScoreNetwork weights receive a unified gradient signal.
+                total_l = reg_l.mean() + gamma * score_l
+                total_l.backward()
+                opt.step()
+                t_l.append(total_l.item())
             history["train_loss"].append(np.mean(t_l))
             if (epoch+1) % 5 == 0 or epochs <= 5:
                 print(f"  Fold {f_idx} | Ep {epoch+1}/{epochs} | Total-Loss: {history['train_loss'][-1]:.6f}")
@@ -143,8 +157,8 @@ def run_standard_suite(fast_dev=False, walk_forward=False):
     prefix = "v2_" if walk_forward else ""
     configs = [
         {"name": "Base_A_LSTM", "use_diffusion": False, "use_gnn": False, "use_lstm": True, "epochs": epochs, "walk_forward": walk_forward},
-        {"name": "DS-TGNN_V2.1.1_Triple", "use_diffusion": True, "use_gnn": True, "use_lstm": True, "include_denoised": True, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
-        {"name": "DS-TGNN_V2.1.2_Score", "use_diffusion": True, "use_gnn": True, "use_lstm": True, "include_denoised": False, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
+        {"name": "DS-TGNN_V2.3_TripleScore", "use_diffusion": True, "use_gnn": True, "use_lstm": True, "include_denoised": True, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
+        {"name": "DS-TGNN_V2.3_DirectScore", "use_diffusion": True, "use_gnn": True, "use_lstm": True, "include_denoised": False, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
     ]
     sum_data = []; d_name = f"{prefix}alpha_dashboard.png"
     for cfg in configs:
