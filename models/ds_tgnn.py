@@ -5,8 +5,14 @@ from torch_geometric.nn import GCNConv
 class DiffusionReturnPrediction(nn.Module):
     def __init__(self, score_net, input_dim, lstm_hidden, gnn_hidden, n_hubs=14, n_out=8, use_diffusion=True, include_denoised=False):
         """
-        V2.3 Score-Hardened DS-TGNN.
-        Supports 8-dim (Raw+Score) and 12-dim (Raw+Clean+Score) docking.
+        Deep Spatiotemporal Graph Neural Network with Score-Augmented features.
+        
+        Args:
+            score_net: The ScoreNetwork used to estimate the gradient of the log-density.
+            input_dim: Dimension of the raw meteorological features (e.g., 4).
+            lstm_hidden: Hidden dimension for the temporal LSTM.
+            gnn_hidden: Hidden dimension for the spatial GCN.
+            include_denoised: If True, uses Tweedie's Formula to include cleaned state features.
         """
         super().__init__()
         self.score_net = score_net 
@@ -15,10 +21,11 @@ class DiffusionReturnPrediction(nn.Module):
         self.n_out = n_out
         self.include_denoised = include_denoised
         
-        # Combined Input Dimension: [Raw(4) + Score(4) + Optional Denoised(4)]
+        # Combined Input Dimension: [Raw + Score + Optional Denoised]
+        # Multiplier depends on whether denoised (Tweedie) features are active.
         self.combined_in_dim = input_dim * (3 if include_denoised else 2)
         
-        # Temporal Component (Recalibrated for dynamic input dimension)
+        # Temporal Component (recalibrated for the concatenated input dimension)
         self.lstm = nn.LSTM(input_size=self.combined_in_dim, hidden_size=lstm_hidden, batch_first=True)
         
         # Spatial Component
@@ -70,19 +77,20 @@ class DiffusionReturnPrediction(nn.Module):
             sigma_low = 0.1 # High-fidelity signal resolution
             t_const = torch.full((B, 1), sigma_low, device=x.device)
             
-            # 2. Score Signal Generation: Gradient of log-density \nabla_x log p(x)
+            # 2. Score Signal Generation: Gradient of log-density ∇_x log p(x)
             # The ScoreNetwork is trained to output the score s_theta(x, sigma) directly.
+            # This score provides the model with structural information about the data manifold.
             scores_flat = self.score_net(x_flat, t_const)
             scores = scores_flat.reshape(B, N, T, F)
             
-            # 3. Input Signal Docking: [B, N, T, combined_dim]
+            # 3. Feature Concatenation: [B, N, T, combined_dim]
             if self.include_denoised:
-                # V2.3 Hardened: Include Tweedie-style denoised projection (Empirical Bayes)
-                # Formula: \hat{x}_0 = x + sigma^2 * \nabla log p(x)
+                # Tweedie's Formula (Empirical Bayes): x_0 ≈ x + sigma^2 * ∇ log p(x)
+                # This approximates the most likely 'clean' version of the noisy weather data.
                 denoised = x + (sigma_low**2) * scores
                 x_combined = torch.cat([x, denoised, scores], dim=-1)
             else:
-                # V2.3 Score-Only path (Direct Score Features)
+                # Direct Score-Augmented path: Concatenate raw and score features.
                 x_combined = torch.cat([x, scores], dim=-1)
         else:
             # Baseline compatibility: Zero-padded pseudo-signals
