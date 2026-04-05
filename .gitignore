@@ -1,3 +1,29 @@
-/models/diffusion/testing/data/FashionMNIST
-/models/diffusion/__pycache__/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data & Models
+*.csv
+*.npz
+*.pt
+*.pth
+/data/
+/results/
+/plots/
+
+# Logs & Diagnostics
+*.log
+diagnostic_out.txt
+.history/
+
+# Environments
+.venv/
+env/
+venv/
+.env
+
+# Project Specific
+/plots_archive_stale_IR143/
+/results_archive_stale_IR143/
 /models/diffusion/testing/
