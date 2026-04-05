@@ -8,7 +8,7 @@ class DiffusionReturnPrediction(nn.Module):
         Deep Spatiotemporal Graph Neural Network with Score-Augmented features.
         
         Args:
-            score_net: The ScoreNetwork used to estimate the gradient of the log-density.
+            score_net: The diffusion score model used to estimate the gradient of the log-density.
             input_dim: Dimension of the raw meteorological features (e.g., 4).
             lstm_hidden: Hidden dimension for the temporal LSTM.
             gnn_hidden: Hidden dimension for the spatial GCN.
@@ -75,10 +75,10 @@ class DiffusionReturnPrediction(nn.Module):
             # define state
             x_flat = x.reshape(B, -1)
             sigma_low = 0.1 # High resolution
-            t_const = torch.full((B, 1), sigma_low, device=x.device)
+            sigma = torch.full((B,), sigma_low, device=x.device)
             
             # generate scores
-            scores_flat = self.score_net(x_flat, t_const)
+            scores_flat = self.score_net(x_flat, sigma)
             scores = scores_flat.reshape(B, N, T, F)
             
             # concatenate features

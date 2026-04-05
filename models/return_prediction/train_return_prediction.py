@@ -1,10 +1,25 @@
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 
 from models.return_prediction.ds_tgnn import DiffusionReturnPrediction
-from models.diffusion.diffusion_architecture import ScoreNetwork
+from models.diffusion.diffusion_architecture import Diffusion
 from models.diffusion.loss_func import ScoreDiffusionLoss
+
+
+class _ScoreModelAdapter(nn.Module):
+    """Adapter to keep legacy score_net(x, sigma) calls compatible with UNet diffusion."""
+
+    def __init__(self, diffusion_model):
+        super().__init__()
+        self.diffusion_model = diffusion_model
+
+    def forward(self, x, sigma):
+        # New UNet diffusion expects sigma shape [B], but legacy code sometimes passes [B, 1].
+        if sigma.ndim > 1:
+            sigma = sigma.view(-1)
+        return self.diffusion_model(x, sigma)
 
 
 def _build_fully_connected_edge_index(num_hubs, device):
@@ -56,17 +71,16 @@ def train_dstgnn(config, folds, device):
         num_hubs = train_loader.dataset.dataset.n_hubs
         time_steps = 180
         feature_dim = 4
-        diffusion_input_dim = num_hubs * time_steps * feature_dim
-
         edge_index = _build_fully_connected_edge_index(num_hubs, device)
 
-        score_network = ScoreNetwork(
-            input_dim=diffusion_input_dim,
-            mlp_hidden=[128],
-            conv_hidden=32,
-            t_hidden_dim=16,
-            output_dim=diffusion_input_dim,
-            use_conv=False,
+        score_network = _ScoreModelAdapter(
+            Diffusion(
+                t_hidden_dim=config.get("t_hidden_dim", 16),
+                in_channels=1,
+                base_channels=config.get("base_channels", 64),
+                channel_mults=config.get("channel_mults", (1, 2, 4)),
+                num_res_blocks=config.get("num_res_blocks", 2),
+            )
         )
         model = DiffusionReturnPrediction(
             score_network,

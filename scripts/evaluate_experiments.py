@@ -1,23 +1,20 @@
 import os
 import sys
-import torch
 import numpy as np
 import pandas as pd
 import random
+import torch
 
-# Path synchronization for local modules.
-prefix = sys.prefix
-dll_path = os.path.join(prefix, 'Lib', 'site-packages', 'torch', 'lib')
-if os.path.exists(dll_path):
-    os.add_dll_directory(dll_path)
+# Avoid forcing extra DLL search paths for torch on Windows; this can load a
+# second OpenMP runtime (libiomp5md.dll) in conda/pip mixed environments.
 
-sys.path.append(os.path.join(os.getcwd(), 'models'))
-sys.path.append(os.path.join(os.getcwd(), 'models', 'diffusion'))
-sys.path.append(os.path.join(os.getcwd(), 'models', 'base'))
+# Ensure repository root is on the import path when running this file directly.
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-from data.dataset import get_dataloaders, get_walk_forward_dataloaders
-from data.market_data import get_real_commodity_returns
-from models.return_prediction.train_return_prediction import train_dstgnn
+from data import get_dataloaders, get_walk_forward_dataloaders, get_real_commodity_returns
+from models.return_prediction import train_dstgnn
 
 def set_seed(seed=42):
     """Sets global seeds to ensure experimental reproducibility."""
@@ -30,7 +27,7 @@ def compute_strategy_returns(preds, targets, k=2):
     """
     Simulates a Long/Short commodity strategy based on model predictions.
     
-    The strategy selects the top 'k' assets to Buy (Long) and the bottom 'k' 
+    The strategy selects the top 'k' assets to Buy (Long) and the bottom 'k'
     assets to Sell (Short) at each time step.
     """
     B, N = preds.shape
