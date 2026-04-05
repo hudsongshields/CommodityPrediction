@@ -2,28 +2,24 @@
 __pycache__/
 *.py[cod]
 *$py.class
+models/__pycache__/
 
 # Data & Models
 *.csv
 *.npz
 *.pt
 *.pth
-/data/
 /results/
 /plots/
 
-# Logs & Diagnostics
+# Logs / Diagnostics
 *.log
 diagnostic_out.txt
 .history/
 
-# Environments
 .venv/
 env/
 venv/
 .env
 
-# Project Specific
-/plots_archive_stale_IR143/
-/results_archive_stale_IR143/
 /models/diffusion/testing/

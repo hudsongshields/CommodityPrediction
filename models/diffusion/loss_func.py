@@ -19,10 +19,6 @@ class ScoreDiffusionLoss(nn.Module):
     def forward(self, score_net, x_0):
         """
         Computes the weighted Fisher Divergence loss using the DSM objective.
-        
-        The loss is defined as:
-        Loss = E[ 0.5 * sigma_t^2 * || s_theta(x_t, sigma_t) - \nabla_{x_t} log p(x_t|x_0) ||^2 ]
-        where \nabla_{x_t} log p(x_t|x_0) = -z / sigma_t.
         """
         B = x_0.shape[0]
         
@@ -36,7 +32,6 @@ class ScoreDiffusionLoss(nn.Module):
         x_t = x_0 + z * sigma_t_view
         
         # 3. Model score prediction s_theta(x_t, sigma_t)
-        # The ScoreNetwork identifies the structural density gradient of the data.
         x_t_flat = x_t.reshape(B, -1)
         score_pred_flat = score_net(x_t_flat, sigma_t.view(B, 1))
         
@@ -45,7 +40,7 @@ class ScoreDiffusionLoss(nn.Module):
         z_flat = z.reshape(B, -1)
         sigma_t_flat = sigma_t.view(B, 1)
         
-        # Unified Fisher loss: sigma_t^2 * || score_pred + z/sigma_t ||^2
+        # Unified Fisher loss
         loss = torch.mean((sigma_t_flat * score_pred_flat + z_flat) ** 2)
         
         return loss

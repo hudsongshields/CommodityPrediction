@@ -15,7 +15,7 @@ class DiffusionReturnPrediction(nn.Module):
             include_denoised: If True, uses Tweedie's Formula to include cleaned state features.
         """
         super().__init__()
-        self.score_net = score_net 
+        self.score_net = score_net
         self.use_diffusion = use_diffusion
         self.n_hubs = n_hubs
         self.n_out = n_out
@@ -72,18 +72,16 @@ class DiffusionReturnPrediction(nn.Module):
         B, N, T, F = x.shape
         
         if self.use_diffusion:
-            # 1. State Estimation
+            # define state
             x_flat = x.reshape(B, -1)
-            sigma_low = 0.1 # High-fidelity signal resolution
+            sigma_low = 0.1 # High resolution
             t_const = torch.full((B, 1), sigma_low, device=x.device)
             
-            # 2. Score Signal Generation: Gradient of log-density ∇_x log p(x)
-            # The ScoreNetwork is trained to output the score s_theta(x, sigma) directly.
-            # This score provides the model with structural information about the data manifold.
+            # generate scores
             scores_flat = self.score_net(x_flat, t_const)
             scores = scores_flat.reshape(B, N, T, F)
             
-            # 3. Feature Concatenation: [B, N, T, combined_dim]
+            # concatenate features
             if self.include_denoised:
                 # Tweedie's Formula (Empirical Bayes): x_0 ≈ x + sigma^2 * ∇ log p(x)
                 # This approximates the most likely 'clean' version of the noisy weather data.

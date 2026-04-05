@@ -5,7 +5,7 @@ import numpy as np
 try:
     from .market_data import get_real_commodity_returns
 except (ImportError, ValueError):
-    from models.market_data import get_real_commodity_returns
+    from data.market_data import get_real_commodity_returns
 except Exception:
     import market_data
     get_real_commodity_returns = market_data.get_real_commodity_returns
