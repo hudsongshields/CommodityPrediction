@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader, Subset
 import pandas as pd
 import numpy as np
+import os
 try:
     from .market_data import get_real_commodity_returns
 except (ImportError, ValueError):
@@ -30,7 +31,8 @@ class CommodityWeatherDataset(Dataset):
         
         # 2. Synchronize historical weather data.
         # Required features: Maximum Temperature, Minimum Temperature, Shortwave Radiation, and Precipitation.
-        weather_df = pd.read_csv('global_daily_weather.csv', parse_dates=['time'])
+        weather_file = os.path.join(os.path.dirname(__file__), 'global_daily_weather.csv')
+        weather_df = pd.read_csv(weather_file, parse_dates=['time'])
         feat_cols = ['temperature_2m_max', 'temperature_2m_min', 'shortwave_radiation_sum', 'precipitation_sum']
         
         # Selection of primary meteorological hubs for global commodity markets.

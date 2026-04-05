@@ -90,7 +90,9 @@ def fetch_global_weather():
     if all_city_data:
         full_df = pd.concat(all_city_data, ignore_index=True)
         # Persistent storage of the meteorological dataset.
-        output_file = "global_daily_weather.csv"
+        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        output_file = os.path.join(project_root, "data", "global_daily_weather.csv")
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
         full_df.to_csv(output_file, index=False)
         print(f"Data ingestion complete. {len(full_df)} records saved to {output_file}.")
     else:

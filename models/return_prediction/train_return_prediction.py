@@ -1,25 +1,12 @@
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
+import os
 
 from models.return_prediction.ds_tgnn import DiffusionReturnPrediction
 from models.diffusion.diffusion_architecture import Diffusion
 from models.diffusion.loss_func import ScoreDiffusionLoss
-
-
-class _ScoreModelAdapter(nn.Module):
-    """Adapter to keep legacy score_net(x, sigma) calls compatible with UNet diffusion."""
-
-    def __init__(self, diffusion_model):
-        super().__init__()
-        self.diffusion_model = diffusion_model
-
-    def forward(self, x, sigma):
-        # New UNet diffusion expects sigma shape [B], but legacy code sometimes passes [B, 1].
-        if sigma.ndim > 1:
-            sigma = sigma.view(-1)
-        return self.diffusion_model(x, sigma)
+from models.diffusion.train_diffusion import pretrain_diffusion_model
 
 
 def _build_fully_connected_edge_index(num_hubs, device):
@@ -49,7 +36,14 @@ def train_dstgnn(config, folds, device):
     monte_carlo_samples = config.get("mc_samples", 1)
     magnitude_weighted_loss = config.get("mag_weighted", True)
     include_denoised = config.get("include_denoised", False)
+    use_diffusion = config.get("use_diffusion", True)
     score_loss_weight = 0.1
+    model_name = config.get("name", "dstgnn")
+
+    diffusion_pretrain_enabled = config.get("pretrain_diffusion", True)
+    diffusion_pretrain_epochs = config.get("diffusion_pretrain_epochs", max(1, epochs // 2))
+    diffusion_pretrain_lr = config.get("diffusion_pretrain_lr", learning_rate)
+    diffusion_pretrained_path = config.get("diffusion_pretrained_path")
 
     score_loss_fn = ScoreDiffusionLoss().to(device)
     history = {"train_loss": [], "val_loss": []}
@@ -73,21 +67,43 @@ def train_dstgnn(config, folds, device):
         feature_dim = 4
         edge_index = _build_fully_connected_edge_index(num_hubs, device)
 
-        score_network = _ScoreModelAdapter(
-            Diffusion(
-                t_hidden_dim=config.get("t_hidden_dim", 16),
-                in_channels=1,
-                base_channels=config.get("base_channels", 64),
-                channel_mults=config.get("channel_mults", (1, 2, 4)),
-                num_res_blocks=config.get("num_res_blocks", 2),
+        diffusion_model = Diffusion(
+            t_hidden_dim=config.get("t_hidden_dim", 16),
+            in_channels=1,
+            base_channels=config.get("base_channels", 64),
+            channel_mults=config.get("channel_mults", (1, 2, 4)),
+            num_res_blocks=config.get("num_res_blocks", 2),
+        ).to(device)
+
+        fold_pretrained_path = diffusion_pretrained_path
+        if fold_pretrained_path is None and diffusion_pretrain_enabled:
+            fold_pretrained_path = os.path.join(
+                "results",
+                f"{model_name}_fold{fold_number}_diffusion_pretrained.pt",
             )
-        )
+
+        if use_diffusion and diffusion_pretrained_path and os.path.exists(diffusion_pretrained_path):
+            print(f"  Loading pretrained diffusion weights from {diffusion_pretrained_path}")
+            diffusion_model.load_state_dict(torch.load(diffusion_pretrained_path, map_location=device))
+        elif use_diffusion and diffusion_pretrain_enabled:
+            print("  Stage 1/2: Pretraining diffusion model on raw weather data...")
+            pretrain_diffusion_model(
+                diffusion_model=diffusion_model,
+                train_loader=train_loader,
+                device=device,
+                epochs=diffusion_pretrain_epochs,
+                learning_rate=diffusion_pretrain_lr,
+                save_path=fold_pretrained_path,
+                print_every=config.get("diffusion_pretrain_print_every", 1),
+            )
+
         model = DiffusionReturnPrediction(
-            score_network,
+            diffusion_model,
             input_dim=feature_dim,
             lstm_hidden=32,
             gnn_hidden=32,
             n_hubs=num_hubs,
+            use_diffusion=use_diffusion,
             include_denoised=include_denoised,
         ).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -100,7 +116,10 @@ def train_dstgnn(config, folds, device):
                 return_batch = return_batch.to(device)
                 optimizer.zero_grad()
 
-                score_loss = score_loss_fn(model.score_net, weather_batch.transpose(1, 2))
+                if use_diffusion:
+                    score_loss = score_loss_fn(model.score_net, weather_batch.transpose(1, 2))
+                else:
+                    score_loss = torch.tensor(0.0, device=device)
                 predicted_returns = model(weather_batch, edge_index)
                 regression_loss = (predicted_returns - return_batch) ** 2
 

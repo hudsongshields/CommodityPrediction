@@ -33,7 +33,7 @@ class ScoreDiffusionLoss(nn.Module):
         
         # 3. Model score prediction s_theta(x_t, sigma_t)
         x_t_flat = x_t.reshape(B, -1)
-        score_pred_flat = score_net(x_t_flat, sigma_t.view(B, 1))
+        score_pred_flat = score_net(x_t_flat, sigma_t)
         
         # 4. Objective Minimization
         # For VE-SDE, we scale the score by sigma_t to match the unit-variance noise z.

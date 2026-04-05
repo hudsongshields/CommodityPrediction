@@ -15,6 +15,8 @@ if project_root not in sys.path:
 
 from data import get_dataloaders, get_walk_forward_dataloaders, get_real_commodity_returns
 from models.return_prediction import train_dstgnn
+from models.diffusion.diffusion_architecture import Diffusion
+from models.diffusion.train_diffusion import train_diffusion
 
 def set_seed(seed=42):
     """Sets global seeds to ensure experimental reproducibility."""
@@ -68,6 +70,10 @@ def run_experiment(config):
     mc_samples = config.get('mc_samples', 1)
     magnitude_weighted = config.get('mag_weighted', True)
     walk_forward = config.get('walk_forward', False)
+    use_diffusion = config.get('use_diffusion', True)
+    pretrain_diffusion = config.get('pretrain_diffusion', use_diffusion)
+    diffusion_pretrain_epochs = config.get('diffusion_pretrain_epochs', max(1, num_epochs // 2))
+    diffusion_pretrain_lr = config.get('diffusion_pretrain_lr', learning_rate)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     if walk_forward:
@@ -82,7 +88,43 @@ def run_experiment(config):
         "lr": learning_rate,
         "mc_samples": mc_samples,
         "mag_weighted": magnitude_weighted,
+        "pretrain_diffusion": False,
+        "diffusion_pretrain_epochs": diffusion_pretrain_epochs,
+        "diffusion_pretrain_lr": diffusion_pretrain_lr,
     }
+
+    if use_diffusion and pretrain_diffusion:
+        diffusion_model = Diffusion(
+            t_hidden_dim=config.get("t_hidden_dim", 16),
+            in_channels=1,
+            base_channels=config.get("base_channels", 64),
+            channel_mults=config.get("channel_mults", (1, 2, 4)),
+            num_res_blocks=config.get("num_res_blocks", 2),
+        ).to(device)
+
+        diffusion_checkpoint = config.get(
+            "diffusion_pretrained_path",
+            os.path.join("results", f"{name}_diffusion_pretrained.pt"),
+        )
+
+        print(
+            f"  Stage 1: training diffusion model for {diffusion_pretrain_epochs} "
+            f"epochs at lr={diffusion_pretrain_lr}."
+        )
+        train_diffusion(
+            diffusion_model=diffusion_model,
+            train_loader=folds[0]["train"],
+            device=device,
+            epochs=diffusion_pretrain_epochs,
+            learning_rate=diffusion_pretrain_lr,
+            save_path=diffusion_checkpoint,
+            print_every=config.get("diffusion_pretrain_print_every", 1),
+        )
+        train_cfg["diffusion_pretrained_path"] = diffusion_checkpoint
+
+    if use_diffusion and not pretrain_diffusion and config.get("diffusion_pretrained_path"):
+        train_cfg["diffusion_pretrained_path"] = config["diffusion_pretrained_path"]
+
     training_outputs = train_dstgnn(config=train_cfg, folds=folds, device=device)
 
     predictions = training_outputs["predictions"]
@@ -123,8 +165,23 @@ def run_standard_suite(fast_dev=False, walk_forward=False):
     epochs = 2 if fast_dev else 50 
     prefix = "final_" if walk_forward else ""
     configs = [
-        {"name": "Base_A_LSTM", "use_diffusion": False, "epochs": epochs, "walk_forward": walk_forward},
-        {"name": "DS-TGNN_V2.3_Triple", "use_diffusion": True, "include_denoised": True, "mc_samples": 50, "epochs": epochs, "walk_forward": walk_forward},
+        {
+            "name": "Base_A_LSTM",
+            "use_diffusion": False,
+            "pretrain_diffusion": False,
+            "epochs": epochs,
+            "walk_forward": walk_forward,
+        },
+        {
+            "name": "DS-TGNN_V2.3_Triple",
+            "use_diffusion": True,
+            "pretrain_diffusion": True,
+            "diffusion_pretrain_epochs": epochs,
+            "include_denoised": True,
+            "mc_samples": 50,
+            "epochs": epochs,
+            "walk_forward": walk_forward,
+        },
     ]
     sum_data = []
     for cfg in configs:
